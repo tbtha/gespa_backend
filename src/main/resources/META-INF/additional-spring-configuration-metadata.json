@@ -1,0 +1,34 @@
+{
+  "properties": [
+    {
+      "name": "app.cors.allowed-origins",
+      "type": "java.lang.String",
+      "description": "Lista separada por comas de orígenes permitidos para CORS."
+    },
+    {
+      "name": "app.jwt.secret",
+      "type": "java.lang.String",
+      "description": "Secreto usado para la firma de JWT."
+    },
+    {
+      "name": "app.jwt.expiration-seconds",
+      "type": "java.lang.Long",
+      "description": "Duración del token JWT en segundos."
+    },
+    {
+      "name": "app.jwt.refresh-expiration-seconds",
+      "type": "java.lang.Long",
+      "description": "Duración del refresh token en segundos."
+    },
+    {
+      "name": "app.security.dev-user",
+      "type": "java.lang.String",
+      "description": "Usuario temporal de seguridad para desarrollo local."
+    },
+    {
+      "name": "app.security.dev-password",
+      "type": "java.lang.String",
+      "description": "Contraseña temporal de seguridad para desarrollo local."
+    }
+  ]
+}

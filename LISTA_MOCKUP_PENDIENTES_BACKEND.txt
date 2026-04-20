@@ -1,0 +1,86 @@
+GESPA - Lista de funcionalidades del mockup y estado de integración backend
+
+YA INTEGRADO (BACKEND)
+- Profesionales: crear, listar, ver, actualizar perfil.
+- Pacientes: crear, listar, ver, actualizar.
+- Búsqueda de pacientes por nombre/RUT.
+- Paginación y filtros en pacientes.
+- Citas: crear, listar por profesional, actualizar estado.
+- Notas clínicas: CRUD con campos indicaciones y plan.
+- Health check y seguridad base para desarrollo.
+
+FALTA INTEGRAR DESDE EL MOCKUP
+
+1) Dashboard profesional  ✅ INTEGRADO
+- Endpoint: GET /api/dashboard/profesional/{id}?semanas=12&limitProximas=20
+- KPIs: pacientes activos, citas hoy, % completadas, % ausentismo.
+- Citas próximas (48h) + cambio de estado disponible via PATCH /api/citas/{id}/estado.
+- Datos agregados para gráficos:
+  - citas por semana
+  - tipos de atención
+  - citas por año
+
+2) Login/seguridad real  ✅ INTEGRADO
+- JWT real con validación de credenciales contra tabla usuarios.
+- Refresh token persistido (tabla refresh_tokens), rotación y logout.
+- Endpoints:
+  - POST /api/auth/login
+  - POST /api/auth/refresh
+  - POST /api/auth/logout
+  - GET  /api/auth/me
+- Restricción por rol/propiedad aplicada en dashboard y módulo de citas:
+  - ADMIN acceso total
+  - PROFESSIONAL solo su propio profesional/citas
+  - PATIENT solo sus propias citas
+
+3) Ficha paciente - Antecedentes
+- Entidad/tabla antecedentes.
+- Enfermedades base + otros.
+- Hábitos: alcohol, tabaco, drogas, actividad física.
+- Operaciones previas, medicamentos regulares, otros antecedentes.
+
+4) Ficha paciente - Evolución  ✅ INTEGRADO
+- Entidad/tabla registros_evolucion.
+- Indicadores extensibles via enum TipoIndicador (peso, talla, IMC, presión sistólica/diastólica,
+  FC, FR, temperatura, saturación O2, glicemia, HbA1c, colesterol, triglicéridos, creatinina, OTRO+etiqueta).
+- POST   /api/pacientes/{id}/evolucion
+- GET    /api/pacientes/{id}/evolucion
+- GET    /api/pacientes/{id}/evolucion/resumen  (último valor por indicador)
+- GET    /api/pacientes/{id}/evolucion/serie?tipo=PESO&desde=2025-01-01&hasta=2025-12-31
+- GET    /api/citas/{id}/evolucion
+- DELETE /api/evolucion/{id}
+
+5) Ficha paciente - Documentos
+- Subida de archivo.
+- Listado por paciente.
+- Descarga/visualización.
+- Marcar compartido_paciente.
+- (Opcional inicial) solo metadata antes de almacenamiento completo.
+
+6) Portal paciente
+- Endpoint de resumen autorizado:
+  - próxima cita + estado
+  - profesional
+  - diagnóstico base
+  - indicaciones
+  - documentos compartidos
+- Regla: paciente solo ve su información habilitada.
+
+7) Agenda semanal (completa)  ✅ INTEGRADO
+- Filtro por rango de fechas en GET /api/citas?profesionalId={id}&desde={ISO_DATE_TIME}&hasta={ISO_DATE_TIME}
+- Listado por día/hora (orden ascendente por startsAt).
+- Edición completa de cita: PUT /api/citas/{id}
+- Validación de solapamientos de horario por profesional (exceptuando citas CANCELLED).
+
+8) Consentimientos y auditoría
+- Entidad/API consentimientos.
+- Entidad/API registros_auditoria.
+- Registro de accesos y acciones críticas.
+
+9) Exportación
+- Endpoint de exportación de datos (RF-12).
+- Auditoría de exportaciones.
+
+10) Diagnóstico base
+- Definir almacenamiento: notas, tabla diagnósticos o resumen clínico.
+- Exponerlo en portal paciente.
