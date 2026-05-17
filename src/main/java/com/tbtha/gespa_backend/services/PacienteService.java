@@ -1,10 +1,13 @@
 package com.tbtha.gespa_backend.services;
 
 import com.tbtha.gespa_backend.dtos.CreatePacienteRequest;
+import com.tbtha.gespa_backend.dtos.CreatePatientInvitationRequest;
 import com.tbtha.gespa_backend.dtos.PacienteResponse;
+import com.tbtha.gespa_backend.dtos.PatientInvitationResponse;
 import com.tbtha.gespa_backend.dtos.PagedResponse;
 import com.tbtha.gespa_backend.dtos.UpdatePacienteRequest;
 import com.tbtha.gespa_backend.entities.Paciente;
+import com.tbtha.gespa_backend.entities.ProfessionalInvitationToken;
 import com.tbtha.gespa_backend.entities.Profesional;
 import com.tbtha.gespa_backend.entities.Usuario;
 import com.tbtha.gespa_backend.entities.enums.EstadoCivil;
@@ -13,10 +16,13 @@ import com.tbtha.gespa_backend.entities.enums.UserRole;
 import com.tbtha.gespa_backend.exceptions.ConflictException;
 import com.tbtha.gespa_backend.exceptions.ResourceNotFoundException;
 import com.tbtha.gespa_backend.repositories.PacienteRepository;
+import com.tbtha.gespa_backend.repositories.ProfessionalInvitationTokenRepository;
 import com.tbtha.gespa_backend.repositories.ProfesionalRepository;
 import com.tbtha.gespa_backend.repositories.UsuarioRepository;
+import com.tbtha.gespa_backend.security.AccessControlService;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -26,7 +32,12 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.OffsetDateTime;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class PacienteService {
@@ -34,20 +45,31 @@ public class PacienteService {
     private final PacienteRepository pacienteRepository;
     private final ProfesionalRepository profesionalRepository;
     private final UsuarioRepository usuarioRepository;
+    private final ProfessionalInvitationTokenRepository invitationTokenRepository;
+    private final AccessControlService accessControlService;
     private final PasswordEncoder passwordEncoder;
+    private final long invitationExpirationSeconds;
 
     public PacienteService(PacienteRepository pacienteRepository,
                            ProfesionalRepository profesionalRepository,
                            UsuarioRepository usuarioRepository,
-                           PasswordEncoder passwordEncoder) {
+                           ProfessionalInvitationTokenRepository invitationTokenRepository,
+                           AccessControlService accessControlService,
+                           PasswordEncoder passwordEncoder,
+                           @Value("${app.auth.invitation.expiration-seconds:604800}") long invitationExpirationSeconds) {
         this.pacienteRepository = pacienteRepository;
         this.profesionalRepository = profesionalRepository;
         this.usuarioRepository = usuarioRepository;
+        this.invitationTokenRepository = invitationTokenRepository;
+        this.accessControlService = accessControlService;
         this.passwordEncoder = passwordEncoder;
+        this.invitationExpirationSeconds = invitationExpirationSeconds;
     }
 
     @Transactional
     public PacienteResponse create(CreatePacienteRequest request) {
+        accessControlService.assertCanAccessProfesional(request.professionalId());
+
         if (usuarioRepository.existsByEmail(request.email())) {
             throw new ConflictException("Ya existe un usuario con el email indicado");
         }
@@ -92,6 +114,13 @@ public class PacienteService {
                                                    String sortBy,
                                                    String sortDir) {
 
+        Usuario actor = accessControlService.currentUsuario();
+        if (actor.getRole() == UserRole.PATIENT) {
+            Paciente paciente = getPaciente(actor.getId());
+            List<PacienteResponse> content = List.of(toResponse(paciente));
+            return new PagedResponse<>(content, 0, 1, 1, 1);
+        }
+
         String resolvedSortBy = resolveSortField(sortBy);
         Sort.Direction direction = "desc".equalsIgnoreCase(sortDir) ? Sort.Direction.DESC : Sort.Direction.ASC;
         Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100), Sort.by(direction, resolvedSortBy));
@@ -135,15 +164,34 @@ public class PacienteService {
 
     @Transactional(readOnly = true)
     public PacienteResponse findById(Long id) {
+        accessControlService.assertCanAccessPaciente(id);
         return toResponse(getPaciente(id));
     }
 
     @Transactional
     public PacienteResponse update(Long id, UpdatePacienteRequest request) {
         Paciente paciente = getPaciente(id);
-        Profesional profesional = getProfesional(request.professionalId());
+        Usuario actor = accessControlService.currentUsuario();
+
+        accessControlService.assertCanAccessPaciente(id);
+
+        Profesional profesional;
+        if (actor.getRole() == UserRole.PATIENT) {
+            profesional = paciente.getProfesional();
+        } else {
+            accessControlService.assertCanAccessProfesional(request.professionalId());
+            profesional = getProfesional(request.professionalId());
+        }
 
         paciente.setProfesional(profesional);
+        if (request.email() != null && !request.email().isBlank()) {
+            String nextEmail = request.email().trim().toLowerCase();
+            String currentEmail = String.valueOf(paciente.getUsuario().getEmail()).trim().toLowerCase();
+            if (!nextEmail.equals(currentEmail) && usuarioRepository.existsByEmail(nextEmail)) {
+                throw new ConflictException("Ya existe un usuario con el email indicado");
+            }
+            paciente.getUsuario().setEmail(nextEmail);
+        }
         if (request.displayName() != null && !request.displayName().isBlank()) {
             paciente.getUsuario().setDisplayName(request.displayName());
         }
@@ -160,6 +208,58 @@ public class PacienteService {
         return toResponse(pacienteRepository.save(paciente));
     }
 
+    @Transactional
+    public PatientInvitationResponse createPatientInvitation(CreatePatientInvitationRequest request) {
+        if (usuarioRepository.existsByEmail(request.email())) {
+            throw new ConflictException("Ya existe un usuario con el email indicado");
+        }
+
+        if (pacienteRepository.existsByRut(request.rut())) {
+            throw new ConflictException("Ya existe un paciente con el RUT indicado");
+        }
+
+        Usuario actor = accessControlService.currentUsuario();
+        Long professionalId = resolveProfessionalIdForInvitation(actor, request.professionalId());
+        Profesional profesional = getProfesional(professionalId);
+
+        Usuario user = new Usuario();
+        user.setEmail(request.email());
+        user.setDisplayName(request.displayName());
+        user.setRole(UserRole.PATIENT);
+        user.setActive(false);
+        user.setPasswordHash(passwordEncoder.encode(generateTemporaryPassword()));
+        usuarioRepository.save(user);
+
+        Paciente paciente = new Paciente();
+        paciente.setUsuario(user);
+        paciente.setProfesional(profesional);
+        paciente.setRut(request.rut());
+        pacienteRepository.save(paciente);
+
+        String plainToken = UUID.randomUUID() + "." + UUID.randomUUID();
+
+        invitationTokenRepository.deleteByUser_Id(user.getId());
+
+        ProfessionalInvitationToken token = new ProfessionalInvitationToken();
+        token.setUser(user);
+        token.setTokenHash(hashToken(plainToken));
+        token.setExpiresAt(OffsetDateTime.now().plusSeconds(invitationExpirationSeconds));
+        token.setUsed(false);
+        invitationTokenRepository.save(token);
+
+        return new PatientInvitationResponse(
+                user.getId(),
+                paciente.getId(),
+                user.getEmail(),
+                user.getDisplayName(),
+                paciente.getRut(),
+                profesional.getId(),
+                user.getRole(),
+                plainToken,
+                token.getExpiresAt()
+        );
+    }
+
     private Profesional getProfesional(Long id) {
         return profesionalRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Profesional no encontrado"));
@@ -170,12 +270,45 @@ public class PacienteService {
                 .orElseThrow(() -> new ResourceNotFoundException("Paciente no encontrado"));
     }
 
+    private Long resolveProfessionalIdForInvitation(Usuario actor, Long requestProfessionalId) {
+        if (actor.getRole() == UserRole.PROFESSIONAL) {
+            return actor.getId();
+        }
+
+        if (actor.getRole() == UserRole.ADMIN && requestProfessionalId != null) {
+            return requestProfessionalId;
+        }
+
+        if (actor.getRole() == UserRole.ADMIN) {
+            throw new ConflictException("Para crear invitación de paciente como admin debes indicar professionalId");
+        }
+
+        throw new ConflictException("No tienes permisos para crear invitaciones de paciente");
+    }
+
+    private String generateTemporaryPassword() {
+        String seed = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        return seed + "A1!";
+    }
+
+    private String hashToken(String plainToken) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(plainToken.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (Exception e) {
+            throw new IllegalStateException("No se pudo procesar token", e);
+        }
+    }
+
     private PacienteResponse toResponse(Paciente paciente) {
         return new PacienteResponse(
                 paciente.getId(),
                 paciente.getUsuario().getEmail(),
                 paciente.getUsuario().getDisplayName(),
                 paciente.getProfesional().getId(),
+                paciente.getProfesional().getUsuario().getDisplayName(),
+                paciente.getProfesional().getSpecialty(),
                 paciente.getRut(),
                 paciente.getBirthdate(),
                 paciente.getGender(),

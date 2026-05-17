@@ -7,11 +7,15 @@ import com.tbtha.gespa_backend.entities.Cita;
 import com.tbtha.gespa_backend.entities.Nota;
 import com.tbtha.gespa_backend.entities.Paciente;
 import com.tbtha.gespa_backend.entities.Profesional;
+import com.tbtha.gespa_backend.entities.Usuario;
+import com.tbtha.gespa_backend.entities.enums.UserRole;
+import com.tbtha.gespa_backend.exceptions.ConflictException;
 import com.tbtha.gespa_backend.exceptions.ResourceNotFoundException;
 import com.tbtha.gespa_backend.repositories.CitaRepository;
 import com.tbtha.gespa_backend.repositories.NotaRepository;
 import com.tbtha.gespa_backend.repositories.PacienteRepository;
 import com.tbtha.gespa_backend.repositories.ProfesionalRepository;
+import com.tbtha.gespa_backend.security.AccessControlService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,35 +28,40 @@ public class NotaService {
     private final PacienteRepository pacienteRepository;
     private final ProfesionalRepository profesionalRepository;
     private final CitaRepository citaRepository;
+    private final AccessControlService accessControlService;
 
     public NotaService(NotaRepository notaRepository,
                        PacienteRepository pacienteRepository,
                        ProfesionalRepository profesionalRepository,
-                       CitaRepository citaRepository) {
+                       CitaRepository citaRepository,
+                       AccessControlService accessControlService) {
         this.notaRepository = notaRepository;
         this.pacienteRepository = pacienteRepository;
         this.profesionalRepository = profesionalRepository;
         this.citaRepository = citaRepository;
+        this.accessControlService = accessControlService;
     }
 
     @Transactional
     public NotaResponse create(Long pacienteId, CreateNotaRequest request) {
         Paciente paciente = pacienteRepository.findById(pacienteId)
                 .orElseThrow(() -> new ResourceNotFoundException("Paciente no encontrado"));
-        Profesional profesional = profesionalRepository.findById(request.professionalId())
-                .orElseThrow(() -> new ResourceNotFoundException("Profesional no encontrado"));
+        Profesional profesional = resolveProfessionalForWrite(request.professionalId());
 
-        Cita cita = null;
-        if (request.appointmentId() != null) {
-            cita = citaRepository.findById(request.appointmentId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Cita no encontrada"));
+        Cita cita = citaRepository.findById(request.appointmentId())
+                .orElseThrow(() -> new ResourceNotFoundException("Cita no encontrada"));
+        if (!cita.getProfesional().getId().equals(profesional.getId())) {
+            throw new ConflictException("La cita no pertenece al profesional autenticado");
+        }
+        if (!cita.getPaciente().getId().equals(paciente.getId())) {
+            throw new ConflictException("La cita no pertenece al paciente indicado");
         }
 
         Nota nota = new Nota();
         nota.setPaciente(paciente);
         nota.setProfesional(profesional);
         nota.setCita(cita);
-        nota.setNoteType(request.noteType());
+        nota.setNoteType(cita.getTipoAtencion() == null ? request.noteType() : cita.getTipoAtencion().name());
         nota.setContent(request.content());
         nota.setIndicaciones(request.indicaciones());
         nota.setPlan(request.plan());
@@ -66,7 +75,12 @@ public class NotaService {
         if (!pacienteRepository.existsById(pacienteId)) {
             throw new ResourceNotFoundException("Paciente no encontrado");
         }
-        return notaRepository.findByPacienteIdOrderByCreatedAtDesc(pacienteId)
+        Usuario actor = accessControlService.currentUsuario();
+        List<Nota> notas = actor.getRole() == UserRole.ADMIN
+                ? notaRepository.findByPacienteIdOrderByCreatedAtDesc(pacienteId)
+                : notaRepository.findByPacienteIdAndProfesionalIdOrderByCreatedAtDesc(pacienteId, resolveCurrentProfessionalId());
+
+        return notas
                 .stream()
                 .map(this::toResponse)
                 .toList();
@@ -74,15 +88,13 @@ public class NotaService {
 
     @Transactional(readOnly = true)
     public NotaResponse findById(Long id) {
-        Nota nota = notaRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Nota no encontrada"));
+        Nota nota = findAccessibleNota(id);
         return toResponse(nota);
     }
 
     @Transactional
     public NotaResponse update(Long id, UpdateNotaRequest request) {
-        Nota nota = notaRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Nota no encontrada"));
+        Nota nota = findAccessibleNota(id);
 
         nota.setNoteType(request.noteType());
         nota.setContent(request.content());
@@ -97,10 +109,8 @@ public class NotaService {
 
     @Transactional
     public void delete(Long id) {
-        if (!notaRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Nota no encontrada");
-        }
-        notaRepository.deleteById(id);
+        Nota nota = findAccessibleNota(id);
+        notaRepository.delete(nota);
     }
 
     private NotaResponse toResponse(Nota nota) {
@@ -117,5 +127,45 @@ public class NotaService {
                 nota.getCreatedAt(),
                 nota.getUpdatedAt()
         );
+    }
+
+    private Nota findAccessibleNota(Long id) {
+        Usuario actor = accessControlService.currentUsuario();
+        if (actor.getRole() == UserRole.ADMIN) {
+            return notaRepository.findById(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("Nota no encontrada"));
+        }
+
+        Long professionalId = resolveCurrentProfessionalId();
+        return notaRepository.findByIdAndProfesionalId(id, professionalId)
+                .orElseThrow(() -> new ResourceNotFoundException("Nota no encontrada"));
+    }
+
+    private Profesional resolveProfessionalForWrite(Long requestedProfessionalId) {
+        Usuario actor = accessControlService.currentUsuario();
+        Long professionalId;
+
+        if (actor.getRole() == UserRole.PROFESSIONAL) {
+            professionalId = actor.getId();
+        } else if (actor.getRole() == UserRole.ADMIN) {
+            professionalId = requestedProfessionalId;
+        } else {
+            throw new org.springframework.security.access.AccessDeniedException("No tienes permisos para registrar notas clínicas");
+        }
+
+        if (professionalId == null) {
+            throw new ConflictException("Debe indicarse el profesional de la nota");
+        }
+
+        return profesionalRepository.findById(professionalId)
+                .orElseThrow(() -> new ResourceNotFoundException("Profesional no encontrado"));
+    }
+
+    private Long resolveCurrentProfessionalId() {
+        Usuario actor = accessControlService.currentUsuario();
+        if (actor.getRole() != UserRole.PROFESSIONAL) {
+            throw new org.springframework.security.access.AccessDeniedException("Solo el profesional autenticado puede acceder a notas clínicas");
+        }
+        return actor.getId();
     }
 }

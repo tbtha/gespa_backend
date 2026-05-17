@@ -1,8 +1,10 @@
 package com.tbtha.gespa_backend.controllers;
 
 import com.tbtha.gespa_backend.dtos.CreatePacienteRequest;
+import com.tbtha.gespa_backend.dtos.CreatePatientInvitationRequest;
 import com.tbtha.gespa_backend.dtos.PacienteResponse;
 import com.tbtha.gespa_backend.dtos.PagedResponse;
+import com.tbtha.gespa_backend.dtos.PatientInvitationResponse;
 import com.tbtha.gespa_backend.dtos.UpdatePacienteRequest;
 import com.tbtha.gespa_backend.entities.enums.EstadoCivil;
 import com.tbtha.gespa_backend.entities.enums.Prevision;
@@ -32,6 +34,11 @@ public class PacienteController {
     @PostMapping
     public ResponseEntity<PacienteResponse> create(@Valid @RequestBody CreatePacienteRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(pacienteService.create(request));
+    }
+
+    @PostMapping("/invitations")
+    public ResponseEntity<PatientInvitationResponse> createInvitation(@Valid @RequestBody CreatePatientInvitationRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(pacienteService.createPatientInvitation(request));
     }
 
     @GetMapping

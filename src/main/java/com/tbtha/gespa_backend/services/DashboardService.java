@@ -132,6 +132,7 @@ public class DashboardService {
 
     private DashboardCitaItemResponse toDashboardCita(Cita c) {
         return new DashboardCitaItemResponse(
+                                c.getId(),
                 c.getId(),
                 c.getPaciente().getId(),
                 c.getPaciente().getUsuario().getDisplayName(),

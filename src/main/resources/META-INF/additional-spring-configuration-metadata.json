@@ -21,6 +21,11 @@
       "description": "Duración del refresh token en segundos."
     },
     {
+      "name": "app.auth.invitation.expiration-seconds",
+      "type": "java.lang.Long",
+      "description": "Duración del token de invitación de profesionales en segundos."
+    },
+    {
       "name": "app.auth.password-reset.expiration-seconds",
       "type": "java.lang.Long",
       "description": "Duración del token de recuperación de contraseña en segundos."
@@ -31,9 +36,39 @@
       "description": "Si está en true, expone el token de recuperación en la respuesta de request (útil en desarrollo)."
     },
     {
+      "name": "app.auth.login.max-failed-attempts",
+      "type": "java.lang.Integer",
+      "description": "Máximo de intentos fallidos permitidos en la ventana configurada antes de bloquear temporalmente el login."
+    },
+    {
+      "name": "app.auth.login.failed-window-seconds",
+      "type": "java.lang.Long",
+      "description": "Ventana de tiempo en segundos para contar intentos fallidos de login."
+    },
+    {
+      "name": "app.auth.login.lock-seconds",
+      "type": "java.lang.Long",
+      "description": "Duración del bloqueo temporal de login en segundos cuando se supera el máximo de intentos fallidos."
+    },
+    {
       "name": "app.seed.defaults.enabled",
       "type": "java.lang.Boolean",
       "description": "Habilita la creación automática de usuarios demo al iniciar la aplicación."
+    },
+    {
+      "name": "app.seed.defaults.admin-email",
+      "type": "java.lang.String",
+      "description": "Correo del usuario administrador sembrado al iniciar la aplicación."
+    },
+    {
+      "name": "app.seed.defaults.admin-display-name",
+      "type": "java.lang.String",
+      "description": "Nombre visible del usuario administrador sembrado al iniciar la aplicación."
+    },
+    {
+      "name": "app.seed.defaults.admin-password",
+      "type": "java.lang.String",
+      "description": "Contraseña inicial del usuario administrador sembrado al iniciar la aplicación."
     },
     {
       "name": "app.seed.defaults.shared-password",
@@ -64,6 +99,11 @@
       "name": "app.seed.defaults.professional-specialty",
       "type": "java.lang.String",
       "description": "Especialidad para el registro profesional demo."
+    },
+    {
+      "name": "app.seed.defaults.professional-rut",
+      "type": "java.lang.String",
+      "description": "RUT por defecto del profesional demo."
     },
     {
       "name": "app.seed.defaults.patient-rut",

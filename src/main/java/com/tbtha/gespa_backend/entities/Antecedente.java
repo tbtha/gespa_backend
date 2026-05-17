@@ -11,25 +11,39 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.OneToOne;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 
 import java.time.OffsetDateTime;
 
 @Entity
-@Table(name = "antecedentes")
+@Table(
+    name = "antecedentes",
+    uniqueConstraints = {
+        @UniqueConstraint(name = "uk_antecedente_patient_professional", columnNames = {"patient_id", "professional_id"})
+    },
+    indexes = {
+        @Index(name = "idx_antecedente_patient_professional", columnList = "patient_id, professional_id")
+    }
+)
 public class Antecedente {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @OneToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "patient_id", nullable = false, unique = true)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "patient_id", nullable = false)
     private Paciente paciente;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "professional_id", nullable = false)
+    private Profesional profesional;
 
     @Column(name = "enfermedades_base", columnDefinition = "TEXT")
     private String enfermedadesBase;
@@ -90,6 +104,14 @@ public class Antecedente {
 
     public void setPaciente(Paciente paciente) {
         this.paciente = paciente;
+    }
+
+    public Profesional getProfesional() {
+        return profesional;
+    }
+
+    public void setProfesional(Profesional profesional) {
+        this.profesional = profesional;
     }
 
     public String getEnfermedadesBase() {

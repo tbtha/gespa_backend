@@ -9,6 +9,7 @@ import java.time.LocalDate;
 
 public record UpdatePacienteRequest(
         @NotNull Long professionalId,
+        String email,
         String displayName,
         LocalDate birthdate,
         Gender gender,

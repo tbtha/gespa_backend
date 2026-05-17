@@ -26,6 +26,9 @@ public class Profesional {
     @Column(name = "license_number", unique = true, length = 100)
     private String licenseNumber;
 
+    @Column(nullable = false, unique = true, length = 20)
+    private String rut;
+
     @Column(nullable = false, length = 150)
     private String specialty;
 
@@ -67,6 +70,14 @@ public class Profesional {
 
     public void setLicenseNumber(String licenseNumber) {
         this.licenseNumber = licenseNumber;
+    }
+
+    public String getRut() {
+        return rut;
+    }
+
+    public void setRut(String rut) {
+        this.rut = rut;
     }
 
     public String getSpecialty() {

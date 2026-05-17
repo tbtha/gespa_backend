@@ -1,6 +1,7 @@
 package com.tbtha.gespa_backend.controllers;
 
 import com.tbtha.gespa_backend.auth.AuthService;
+import com.tbtha.gespa_backend.dtos.AcceptProfessionalInvitationRequest;
 import com.tbtha.gespa_backend.dtos.LoginRequest;
 import com.tbtha.gespa_backend.dtos.LoginResponse;
 import com.tbtha.gespa_backend.dtos.MeResponse;
@@ -8,6 +9,8 @@ import com.tbtha.gespa_backend.dtos.PasswordResetConfirmRequest;
 import com.tbtha.gespa_backend.dtos.PasswordResetRequest;
 import com.tbtha.gespa_backend.dtos.PasswordResetRequestResponse;
 import com.tbtha.gespa_backend.dtos.RefreshTokenRequest;
+import com.tbtha.gespa_backend.dtos.RegisterPatientRequest;
+import com.tbtha.gespa_backend.dtos.RegisterPatientResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -56,6 +59,21 @@ public class AuthController {
     ) {
         authService.confirmPasswordReset(request);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/invitations/accept")
+    public ResponseEntity<Void> acceptProfessionalInvitation(
+            @Valid @RequestBody AcceptProfessionalInvitationRequest request
+    ) {
+        authService.acceptProfessionalInvitation(request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/register/patient")
+    public ResponseEntity<RegisterPatientResponse> registerPatient(
+            @Valid @RequestBody RegisterPatientRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(authService.registerPatient(request));
     }
 
     @GetMapping("/me")

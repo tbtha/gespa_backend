@@ -1,11 +1,8 @@
 package com.tbtha.gespa_backend.security;
 
 import com.tbtha.gespa_backend.entities.Cita;
-import com.tbtha.gespa_backend.entities.Paciente;
 import com.tbtha.gespa_backend.entities.Usuario;
 import com.tbtha.gespa_backend.entities.enums.UserRole;
-import com.tbtha.gespa_backend.exceptions.ResourceNotFoundException;
-import com.tbtha.gespa_backend.repositories.PacienteRepository;
 import com.tbtha.gespa_backend.repositories.UsuarioRepository;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
@@ -16,12 +13,9 @@ import org.springframework.stereotype.Service;
 public class AccessControlService {
 
     private final UsuarioRepository usuarioRepository;
-    private final PacienteRepository pacienteRepository;
 
-    public AccessControlService(UsuarioRepository usuarioRepository,
-                                PacienteRepository pacienteRepository) {
+    public AccessControlService(UsuarioRepository usuarioRepository) {
         this.usuarioRepository = usuarioRepository;
-        this.pacienteRepository = pacienteRepository;
     }
 
     public Usuario currentUsuario() {
@@ -55,11 +49,7 @@ public class AccessControlService {
         }
 
         if (actor.getRole() == UserRole.PROFESSIONAL) {
-            Paciente paciente = pacienteRepository.findById(pacienteId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Paciente no encontrado"));
-            if (paciente.getProfesional().getId().equals(actor.getId())) {
-                return;
-            }
+            return;
         }
 
         throw new AccessDeniedException("No tienes permisos para acceder a este paciente");

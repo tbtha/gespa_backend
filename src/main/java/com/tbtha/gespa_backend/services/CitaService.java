@@ -76,6 +76,15 @@ public class CitaService {
     }
 
     @Transactional(readOnly = true)
+    public List<CitaResponse> findByPaciente(Long pacienteId) {
+        accessControlService.assertCanAccessPaciente(pacienteId);
+        return citaRepository.findByPacienteIdOrderByStartsAtAsc(pacienteId)
+                .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public List<CitaResponse> findAgendaByProfesional(Long profesionalId,
                                                       OffsetDateTime desde,
                                                       OffsetDateTime hasta) {
@@ -170,7 +179,10 @@ public class CitaService {
         return new CitaResponse(
                 cita.getId(),
                 cita.getPaciente().getId(),
+            cita.getPaciente().getUsuario().getDisplayName(),
                 cita.getProfesional().getId(),
+                cita.getProfesional().getUsuario().getDisplayName(),
+                cita.getProfesional().getSpecialty(),
                 cita.getStartsAt(),
                 cita.getEndsAt(),
                 cita.getStatus(),

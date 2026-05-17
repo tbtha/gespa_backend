@@ -5,7 +5,7 @@ import jakarta.validation.constraints.NotNull;
 
 public record CreateNotaRequest(
         @NotNull Long professionalId,
-        Long appointmentId,
+        @NotNull Long appointmentId,
         @NotBlank String noteType,
         @NotBlank String content,
         String indicaciones,

@@ -3,15 +3,25 @@ package com.tbtha.gespa_backend.auth;
 import com.tbtha.gespa_backend.dtos.LoginRequest;
 import com.tbtha.gespa_backend.dtos.LoginResponse;
 import com.tbtha.gespa_backend.dtos.MeResponse;
+import com.tbtha.gespa_backend.dtos.AcceptProfessionalInvitationRequest;
 import com.tbtha.gespa_backend.dtos.PasswordResetConfirmRequest;
 import com.tbtha.gespa_backend.dtos.PasswordResetRequest;
 import com.tbtha.gespa_backend.dtos.PasswordResetRequestResponse;
+import com.tbtha.gespa_backend.dtos.RegisterPatientRequest;
+import com.tbtha.gespa_backend.dtos.RegisterPatientResponse;
 import com.tbtha.gespa_backend.entities.PasswordResetToken;
+import com.tbtha.gespa_backend.entities.Paciente;
+import com.tbtha.gespa_backend.entities.ProfessionalInvitationToken;
+import com.tbtha.gespa_backend.entities.Profesional;
 import com.tbtha.gespa_backend.entities.RefreshToken;
 import com.tbtha.gespa_backend.entities.Usuario;
+import com.tbtha.gespa_backend.entities.enums.UserRole;
 import com.tbtha.gespa_backend.exceptions.ConflictException;
 import com.tbtha.gespa_backend.exceptions.ResourceNotFoundException;
+import com.tbtha.gespa_backend.repositories.PacienteRepository;
 import com.tbtha.gespa_backend.repositories.PasswordResetTokenRepository;
+import com.tbtha.gespa_backend.repositories.ProfessionalInvitationTokenRepository;
+import com.tbtha.gespa_backend.repositories.ProfesionalRepository;
 import com.tbtha.gespa_backend.repositories.RefreshTokenRepository;
 import com.tbtha.gespa_backend.repositories.UsuarioRepository;
 import com.tbtha.gespa_backend.security.AccessControlService;
@@ -19,6 +29,7 @@ import com.tbtha.gespa_backend.security.JwtService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,13 +39,18 @@ import java.security.MessageDigest;
 import java.time.OffsetDateTime;
 import java.util.HexFormat;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 @Service
 public class AuthService {
 
     private final AuthenticationManager authenticationManager;
     private final UsuarioRepository usuarioRepository;
+    private final PacienteRepository pacienteRepository;
+    private final ProfesionalRepository profesionalRepository;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
+    private final ProfessionalInvitationTokenRepository invitationTokenRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtService jwtService;
     private final AccessControlService accessControlService;
@@ -42,20 +58,33 @@ public class AuthService {
     private final long refreshExpirationSeconds;
     private final long passwordResetExpirationSeconds;
     private final boolean exposePasswordResetToken;
+    private final int loginMaxFailedAttempts;
+    private final long loginFailedWindowSeconds;
+    private final long loginLockSeconds;
+    private final ConcurrentMap<String, FailedLoginAttempt> failedLogins = new ConcurrentHashMap<>();
 
     public AuthService(AuthenticationManager authenticationManager,
                        UsuarioRepository usuarioRepository,
+                       PacienteRepository pacienteRepository,
+                       ProfesionalRepository profesionalRepository,
                        PasswordResetTokenRepository passwordResetTokenRepository,
+                       ProfessionalInvitationTokenRepository invitationTokenRepository,
                        RefreshTokenRepository refreshTokenRepository,
                        JwtService jwtService,
                        AccessControlService accessControlService,
                        PasswordEncoder passwordEncoder,
                        @Value("${app.jwt.refresh-expiration-seconds:1209600}") long refreshExpirationSeconds,
                        @Value("${app.auth.password-reset.expiration-seconds:3600}") long passwordResetExpirationSeconds,
-                       @Value("${app.auth.password-reset.expose-token:false}") boolean exposePasswordResetToken) {
+                       @Value("${app.auth.password-reset.expose-token:false}") boolean exposePasswordResetToken,
+                       @Value("${app.auth.login.max-failed-attempts:5}") int loginMaxFailedAttempts,
+                       @Value("${app.auth.login.failed-window-seconds:900}") long loginFailedWindowSeconds,
+                       @Value("${app.auth.login.lock-seconds:900}") long loginLockSeconds) {
         this.authenticationManager = authenticationManager;
         this.usuarioRepository = usuarioRepository;
+        this.pacienteRepository = pacienteRepository;
+        this.profesionalRepository = profesionalRepository;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
+        this.invitationTokenRepository = invitationTokenRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.jwtService = jwtService;
         this.accessControlService = accessControlService;
@@ -63,13 +92,26 @@ public class AuthService {
         this.refreshExpirationSeconds = refreshExpirationSeconds;
         this.passwordResetExpirationSeconds = passwordResetExpirationSeconds;
         this.exposePasswordResetToken = exposePasswordResetToken;
+        this.loginMaxFailedAttempts = Math.max(loginMaxFailedAttempts, 1);
+        this.loginFailedWindowSeconds = Math.max(loginFailedWindowSeconds, 1);
+        this.loginLockSeconds = Math.max(loginLockSeconds, 1);
     }
 
     @Transactional
     public LoginResponse login(LoginRequest request) {
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.email(), request.password())
-        );
+        String normalizedEmail = normalizeLoginKey(request.email());
+        assertLoginNotLocked(normalizedEmail);
+
+        try {
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(request.email(), request.password())
+            );
+        } catch (AuthenticationException ex) {
+            registerFailedLogin(normalizedEmail);
+            throw new ConflictException("Credenciales inválidas");
+        }
+
+        clearFailedLogins(normalizedEmail);
 
         Usuario usuario = usuarioRepository.findByEmail(request.email())
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
@@ -195,6 +237,107 @@ public class AuthService {
                 .forEach(token -> token.setRevoked(true));
     }
 
+    @Transactional
+    public void acceptProfessionalInvitation(AcceptProfessionalInvitationRequest request) {
+        String tokenHash = hashToken(request.token());
+
+        ProfessionalInvitationToken invitation = invitationTokenRepository.findByTokenHash(tokenHash)
+                .orElseThrow(() -> new ConflictException("Token inválido o expirado"));
+
+        if (invitation.isUsed() || invitation.getExpiresAt().isBefore(OffsetDateTime.now())) {
+            throw new ConflictException("Token inválido o expirado");
+        }
+
+        Usuario user = invitation.getUser();
+        if (user.getRole() != UserRole.PROFESSIONAL && user.getRole() != UserRole.PATIENT) {
+            throw new ConflictException("La invitación no corresponde a una cuenta activable");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+        user.setActive(true);
+
+        invitation.setUsed(true);
+        invitation.setUsedAt(OffsetDateTime.now());
+    }
+
+    @Transactional
+    public RegisterPatientResponse registerPatient(RegisterPatientRequest request) {
+        if (usuarioRepository.existsByEmail(request.email())) {
+            throw new ConflictException("Ya existe un usuario con el email indicado");
+        }
+
+        if (pacienteRepository.existsByRut(request.rut())) {
+            throw new ConflictException("Ya existe un paciente con el RUT indicado");
+        }
+
+        Profesional assignedProfessional = profesionalRepository.findAll().stream().findFirst()
+                .orElseThrow(() -> new ConflictException("No hay profesionales disponibles para registro"));
+
+        Usuario user = new Usuario();
+        user.setEmail(request.email());
+        user.setDisplayName(request.displayName());
+        user.setRole(UserRole.PATIENT);
+        user.setActive(true);
+        user.setPasswordHash(passwordEncoder.encode(request.password()));
+        usuarioRepository.save(user);
+
+        Paciente paciente = new Paciente();
+        paciente.setUsuario(user);
+        paciente.setProfesional(assignedProfessional);
+        paciente.setRut(request.rut());
+        pacienteRepository.save(paciente);
+
+        return new RegisterPatientResponse(
+                user.getId(),
+                user.getEmail(),
+                user.getRole(),
+                user.getActive()
+        );
+    }
+
+    private void assertLoginNotLocked(String loginKey) {
+        FailedLoginAttempt state = failedLogins.get(loginKey);
+        if (state == null) {
+            return;
+        }
+
+        OffsetDateTime now = OffsetDateTime.now();
+        if (state.lockedUntil != null && state.lockedUntil.isAfter(now)) {
+            throw new ConflictException("Cuenta temporalmente bloqueada por intentos fallidos. Intenta más tarde");
+        }
+
+        if (state.lockedUntil != null && !state.lockedUntil.isAfter(now)) {
+            failedLogins.remove(loginKey);
+        }
+    }
+
+    private void registerFailedLogin(String loginKey) {
+        OffsetDateTime now = OffsetDateTime.now();
+        failedLogins.compute(loginKey, (key, current) -> {
+            FailedLoginAttempt state = current;
+            if (state == null || state.firstFailureAt.plusSeconds(loginFailedWindowSeconds).isBefore(now)) {
+                state = new FailedLoginAttempt(now, 0, null);
+            }
+
+            int failedCount = state.failedCount + 1;
+            OffsetDateTime lockedUntil = state.lockedUntil;
+
+            if (failedCount >= loginMaxFailedAttempts) {
+                lockedUntil = now.plusSeconds(loginLockSeconds);
+            }
+
+            return new FailedLoginAttempt(state.firstFailureAt, failedCount, lockedUntil);
+        });
+    }
+
+    private void clearFailedLogins(String loginKey) {
+        failedLogins.remove(loginKey);
+    }
+
+    private String normalizeLoginKey(String email) {
+        return email == null ? "" : email.trim().toLowerCase();
+    }
+
     private String createAndPersistRefreshToken(Usuario usuario) {
         String plainToken = UUID.randomUUID() + "." + UUID.randomUUID();
 
@@ -216,5 +359,8 @@ public class AuthService {
         } catch (Exception e) {
             throw new IllegalStateException("No se pudo procesar refresh token", e);
         }
+    }
+
+    private record FailedLoginAttempt(OffsetDateTime firstFailureAt, int failedCount, OffsetDateTime lockedUntil) {
     }
 }

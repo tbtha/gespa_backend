@@ -11,6 +11,8 @@ public record PacienteResponse(
         String email,
         String displayName,
         Long professionalId,
+        String professionalName,
+        String professionalSpecialty,
         String rut,
         LocalDate birthdate,
         Gender gender,

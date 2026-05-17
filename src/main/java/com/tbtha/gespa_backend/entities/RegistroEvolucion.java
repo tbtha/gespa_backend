@@ -16,7 +16,7 @@ import java.time.LocalDate;
  */
 @Entity
 @Table(name = "registros_evolucion", indexes = {
-        @Index(name = "idx_evol_paciente_tipo_fecha", columnList = "paciente_id, tipo_indicador, fecha_registro")
+    @Index(name = "idx_evol_paciente_profesional_tipo_fecha", columnList = "paciente_id, professional_id, tipo_indicador, fecha_registro")
 })
 public class RegistroEvolucion {
 
@@ -27,6 +27,10 @@ public class RegistroEvolucion {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "paciente_id", nullable = false)
     private Paciente paciente;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "professional_id", nullable = false)
+    private Profesional profesional;
 
     /** Cita a la que pertenece este registro (opcional). */
     @ManyToOne(fetch = FetchType.LAZY)
@@ -74,6 +78,9 @@ public class RegistroEvolucion {
 
     public Paciente getPaciente() { return paciente; }
     public void setPaciente(Paciente paciente) { this.paciente = paciente; }
+
+    public Profesional getProfesional() { return profesional; }
+    public void setProfesional(Profesional profesional) { this.profesional = profesional; }
 
     public Cita getCita() { return cita; }
     public void setCita(Cita cita) { this.cita = cita; }

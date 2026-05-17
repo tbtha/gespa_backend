@@ -9,7 +9,10 @@ import java.time.OffsetDateTime;
 public record CitaResponse(
         Long id,
         Long pacienteId,
+        String pacienteNombre,
         Long profesionalId,
+        String profesionalNombre,
+        String profesionalEspecialidad,
         OffsetDateTime startsAt,
         OffsetDateTime endsAt,
         AppointmentStatus status,

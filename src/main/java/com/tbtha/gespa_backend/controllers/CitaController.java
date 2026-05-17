@@ -48,6 +48,11 @@ public class CitaController {
         return ResponseEntity.ok(citaService.findAgendaByProfesional(profesionalId, desde, hasta));
     }
 
+    @GetMapping("/paciente/{pacienteId}")
+    public ResponseEntity<List<CitaResponse>> findByPaciente(@PathVariable Long pacienteId) {
+        return ResponseEntity.ok(citaService.findByPaciente(pacienteId));
+    }
+
     @PatchMapping("/{id}/estado")
     public ResponseEntity<CitaResponse> updateEstado(@PathVariable Long id,
                                                      @Valid @RequestBody UpdateEstadoCitaRequest request) {

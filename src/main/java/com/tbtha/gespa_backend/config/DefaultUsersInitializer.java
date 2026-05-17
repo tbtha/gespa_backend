@@ -24,6 +24,15 @@ public class DefaultUsersInitializer implements CommandLineRunner {
     @Value("${app.seed.defaults.enabled:true}")
     private boolean enabled;
 
+    @Value("${app.seed.defaults.admin-email:admin@gespa.local}")
+    private String adminEmail;
+
+    @Value("${app.seed.defaults.admin-display-name:Administrador}")
+    private String adminDisplayName;
+
+    @Value("${app.seed.defaults.admin-password:}")
+    private String adminPassword;
+
     @Value("${app.seed.defaults.shared-password:Demo12345!}")
     private String sharedPassword;
 
@@ -41,6 +50,9 @@ public class DefaultUsersInitializer implements CommandLineRunner {
 
     @Value("${app.seed.defaults.professional-specialty:Medicina General}")
     private String professionalSpecialty;
+
+    @Value("${app.seed.defaults.professional-rut:RUT-PRO-DEMO-001}")
+    private String professionalRut;
 
     @Value("${app.seed.defaults.patient-rut:RUT-DEMO-001}")
     private String patientRut;
@@ -62,10 +74,22 @@ public class DefaultUsersInitializer implements CommandLineRunner {
             return;
         }
 
+        requireNonBlank("app.seed.defaults.admin-password", adminPassword);
+        requireNonBlank("app.seed.defaults.admin-email", adminEmail);
+        requireNonBlank("app.seed.defaults.admin-display-name", adminDisplayName);
+
+        ensureUser(
+            adminEmail,
+            adminDisplayName,
+            UserRole.ADMIN,
+            adminPassword
+        );
+
         Usuario professionalUser = ensureUser(
                 professionalEmail,
                 professionalDisplayName,
-                UserRole.PROFESSIONAL
+            UserRole.PROFESSIONAL,
+            sharedPassword
         );
 
         Profesional profesional = ensureProfessional(professionalUser);
@@ -73,13 +97,14 @@ public class DefaultUsersInitializer implements CommandLineRunner {
         Usuario patientUser = ensureUser(
                 patientEmail,
                 patientDisplayName,
-                UserRole.PATIENT
+            UserRole.PATIENT,
+            sharedPassword
         );
 
         ensurePatient(patientUser, profesional);
     }
 
-    private Usuario ensureUser(String email, String displayName, UserRole role) {
+    private Usuario ensureUser(String email, String displayName, UserRole role, String rawPassword) {
         return usuarioRepository.findByEmail(email)
                 .map(existing -> {
                     boolean changed = false;
@@ -99,11 +124,6 @@ public class DefaultUsersInitializer implements CommandLineRunner {
                         changed = true;
                     }
 
-                    if (!passwordEncoder.matches(sharedPassword, existing.getPasswordHash())) {
-                        existing.setPasswordHash(passwordEncoder.encode(sharedPassword));
-                        changed = true;
-                    }
-
                     if (changed) {
                         return usuarioRepository.save(existing);
                     }
@@ -116,16 +136,43 @@ public class DefaultUsersInitializer implements CommandLineRunner {
                     user.setDisplayName(displayName);
                     user.setRole(role);
                     user.setActive(true);
-                    user.setPasswordHash(passwordEncoder.encode(sharedPassword));
+                    user.setPasswordHash(passwordEncoder.encode(rawPassword));
                     return usuarioRepository.save(user);
                 });
     }
 
+    private void requireNonBlank(String propertyName, String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException("Propiedad requerida no configurada: " + propertyName);
+        }
+    }
+
     private Profesional ensureProfessional(Usuario professionalUser) {
         return profesionalRepository.findById(professionalUser.getId())
+                .map(existing -> {
+                    boolean changed = false;
+
+                    if (existing.getRut() == null || existing.getRut().isBlank()) {
+                        existing.setRut(resolveUniqueProfessionalRut(professionalUser.getId()));
+                        changed = true;
+                    }
+
+                    if (existing.getSpecialty() == null || existing.getSpecialty().isBlank()) {
+                        existing.setSpecialty(professionalSpecialty);
+                        changed = true;
+                    }
+
+                    if (existing.getLicenseNumber() == null || existing.getLicenseNumber().isBlank()) {
+                        existing.setLicenseNumber("LIC-DEMO-" + professionalUser.getId());
+                        changed = true;
+                    }
+
+                    return changed ? profesionalRepository.save(existing) : existing;
+                })
                 .orElseGet(() -> {
                     Profesional profesional = new Profesional();
                     profesional.setUsuario(professionalUser);
+                    profesional.setRut(resolveUniqueProfessionalRut(professionalUser.getId()));
                     profesional.setSpecialty(professionalSpecialty);
                     profesional.setLicenseNumber("LIC-DEMO-" + professionalUser.getId());
                     return profesionalRepository.save(profesional);
@@ -148,5 +195,12 @@ public class DefaultUsersInitializer implements CommandLineRunner {
             return patientRut;
         }
         return "RUT-DEMO-" + patientUserId;
+    }
+
+    private String resolveUniqueProfessionalRut(Long professionalUserId) {
+        if (!profesionalRepository.existsByRut(professionalRut)) {
+            return professionalRut;
+        }
+        return "RUT-PRO-" + professionalUserId;
     }
 }

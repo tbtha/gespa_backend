@@ -7,6 +7,7 @@ import com.tbtha.gespa_backend.entities.enums.TipoAtencion;
 import java.time.OffsetDateTime;
 
 public record DashboardCitaItemResponse(
+        Long id,
         Long citaId,
         Long pacienteId,
         String pacienteNombre,
