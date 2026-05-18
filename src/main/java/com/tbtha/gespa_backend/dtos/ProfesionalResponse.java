@@ -6,7 +6,6 @@ public record ProfesionalResponse(
         String displayName,
         String rut,
         String specialty,
-        String licenseNumber,
         String phone,
         String address,
         String institucion,

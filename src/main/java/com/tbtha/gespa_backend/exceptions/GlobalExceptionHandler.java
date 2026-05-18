@@ -8,10 +8,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import jakarta.servlet.http.HttpServletRequest;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -85,6 +87,22 @@ public class GlobalExceptionHandler {
                 List.of(),
                 OffsetDateTime.now());
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+        public ResponseEntity<ApiError> handleUnsupportedMediaType(HttpMediaTypeNotSupportedException ex,
+                                       HttpServletRequest request) {
+        ApiError error = new ApiError(
+                "UNSUPPORTED_MEDIA_TYPE",
+                "Content-Type no soportado. Usa application/json",
+            List.of(
+                "path=" + request.getRequestURI(),
+                "contentType=" + String.valueOf(request.getContentType()),
+                ex.getMessage() == null ? "Sin detalle" : ex.getMessage()
+            ),
+                OffsetDateTime.now());
+
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body(error);
     }
 
     @ExceptionHandler(Exception.class)

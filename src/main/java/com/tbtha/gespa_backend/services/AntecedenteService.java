@@ -4,13 +4,10 @@ import com.tbtha.gespa_backend.dtos.AntecedentesResponse;
 import com.tbtha.gespa_backend.dtos.UpsertAntecedentesRequest;
 import com.tbtha.gespa_backend.entities.Antecedente;
 import com.tbtha.gespa_backend.entities.Paciente;
-import com.tbtha.gespa_backend.entities.Profesional;
-import com.tbtha.gespa_backend.entities.Usuario;
 import com.tbtha.gespa_backend.entities.enums.UserRole;
 import com.tbtha.gespa_backend.exceptions.ResourceNotFoundException;
 import com.tbtha.gespa_backend.repositories.AntecedenteRepository;
 import com.tbtha.gespa_backend.repositories.PacienteRepository;
-import com.tbtha.gespa_backend.repositories.ProfesionalRepository;
 import com.tbtha.gespa_backend.security.AccessControlService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,42 +17,44 @@ public class AntecedenteService {
 
     private final AntecedenteRepository antecedenteRepository;
     private final PacienteRepository pacienteRepository;
-        private final ProfesionalRepository profesionalRepository;
-        private final AccessControlService accessControlService;
+    private final AccessControlService accessControlService;
+    private final AuditService auditService;
 
     public AntecedenteService(AntecedenteRepository antecedenteRepository,
-                      PacienteRepository pacienteRepository,
-                      ProfesionalRepository profesionalRepository,
-                      AccessControlService accessControlService) {
+                              PacienteRepository pacienteRepository,
+                              AccessControlService accessControlService,
+                              AuditService auditService) {
         this.antecedenteRepository = antecedenteRepository;
         this.pacienteRepository = pacienteRepository;
-        this.profesionalRepository = profesionalRepository;
         this.accessControlService = accessControlService;
+        this.auditService = auditService;
     }
 
     @Transactional(readOnly = true)
     public AntecedentesResponse findByPaciente(Long pacienteId) {
-        if (!pacienteRepository.existsById(pacienteId)) {
-            throw new ResourceNotFoundException("Paciente no encontrado");
-        }
-        Profesional profesional = resolveCurrentProfessional();
+        accessControlService.assertCanAccessPaciente(pacienteId);
 
-        return antecedenteRepository.findByPacienteIdAndProfesionalId(pacienteId, profesional.getId())
-            .map(this::toResponse)
-            .orElseGet(() -> emptyResponse(pacienteId));
+        return antecedenteRepository.findFirstByPacienteIdOrderByUpdatedAtDesc(pacienteId)
+                .map(this::toResponse)
+                .orElseGet(() -> emptyResponse(pacienteId));
     }
 
     @Transactional
     public AntecedentesResponse upsert(Long pacienteId, UpsertAntecedentesRequest request) {
+        if (accessControlService.currentUserRole() == UserRole.PATIENT) {
+            throw new org.springframework.security.access.AccessDeniedException("El paciente no puede editar antecedentes clínicos");
+        }
+
+        accessControlService.assertCanAccessPaciente(pacienteId);
+
         Paciente paciente = pacienteRepository.findById(pacienteId)
                 .orElseThrow(() -> new ResourceNotFoundException("Paciente no encontrado"));
-        Profesional profesional = resolveCurrentProfessional();
 
-        Antecedente antecedente = antecedenteRepository.findByPacienteIdAndProfesionalId(pacienteId, profesional.getId())
+        Antecedente antecedente = antecedenteRepository.findFirstByPacienteIdOrderByUpdatedAtDesc(pacienteId)
                 .orElseGet(() -> {
                     Antecedente nuevo = new Antecedente();
                     nuevo.setPaciente(paciente);
-                nuevo.setProfesional(profesional);
+                    nuevo.setProfesional(null);
                     return nuevo;
                 });
 
@@ -69,7 +68,9 @@ public class AntecedenteService {
         antecedente.setMedicamentosRegulares(request.medicamentosRegulares());
         antecedente.setOtrosAntecedentes(request.otrosAntecedentes());
 
-        return toResponse(antecedenteRepository.save(antecedente));
+        Antecedente saved = antecedenteRepository.save(antecedente);
+        auditService.register("UPSERT_ANTECEDENTE", "antecedentes", saved.getId(), "pacienteId=" + pacienteId);
+        return toResponse(saved);
     }
 
     private AntecedentesResponse toResponse(Antecedente antecedente) {
@@ -106,13 +107,4 @@ public class AntecedenteService {
         );
     }
 
-    private Profesional resolveCurrentProfessional() {
-        Usuario actor = accessControlService.currentUsuario();
-        if (actor.getRole() != UserRole.PROFESSIONAL) {
-            throw new org.springframework.security.access.AccessDeniedException("Solo el profesional autenticado puede acceder a antecedentes clínicos");
-        }
-
-        return profesionalRepository.findById(actor.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Profesional no encontrado"));
-    }
 }

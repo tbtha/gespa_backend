@@ -16,6 +16,7 @@ import com.tbtha.gespa_backend.repositories.ProfessionalInvitationTokenRepositor
 import com.tbtha.gespa_backend.repositories.ProfesionalRepository;
 import com.tbtha.gespa_backend.repositories.RefreshTokenRepository;
 import com.tbtha.gespa_backend.repositories.UsuarioRepository;
+import com.tbtha.gespa_backend.utils.RutUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -55,21 +56,18 @@ public class AdminService {
 
     @Transactional
     public ProfessionalInvitationResponse createProfessionalInvitation(AdminCreateProfessionalInvitationRequest request) {
+        String normalizedRut = RutUtils.normalize(request.rut());
+
         if (usuarioRepository.existsByEmail(request.email())) {
             throw new ConflictException("Ya existe un usuario con el email indicado");
         }
 
-        if (request.licenseNumber() != null && !request.licenseNumber().isBlank()
-                && profesionalRepository.existsByLicenseNumber(request.licenseNumber())) {
-            throw new ConflictException("Ya existe un profesional con ese número de registro");
-        }
-
-        if (profesionalRepository.existsByRut(request.rut())) {
+        if (profesionalRepository.existsByRut(normalizedRut)) {
             throw new ConflictException("Ya existe un profesional con ese RUT");
         }
 
         Usuario user = new Usuario();
-        user.setEmail(request.email());
+        user.setEmail(request.email().trim().toLowerCase());
         user.setDisplayName(request.displayName());
         user.setRole(UserRole.PROFESSIONAL);
         user.setActive(false);
@@ -78,9 +76,8 @@ public class AdminService {
 
         Profesional profesional = new Profesional();
         profesional.setUsuario(user);
-        profesional.setRut(request.rut());
+        profesional.setRut(normalizedRut);
         profesional.setSpecialty(resolveSpecialty(request.specialty()));
-        profesional.setLicenseNumber(request.licenseNumber());
         profesional.setPhone(request.phone());
         profesional.setAddress(request.address());
         profesional.setInstitucion(request.institucion());

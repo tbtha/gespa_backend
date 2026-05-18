@@ -3,12 +3,10 @@ package com.tbtha.gespa_backend.dtos;
 import com.tbtha.gespa_backend.entities.enums.EstadoCivil;
 import com.tbtha.gespa_backend.entities.enums.Gender;
 import com.tbtha.gespa_backend.entities.enums.Prevision;
-import jakarta.validation.constraints.NotNull;
 
 import java.time.LocalDate;
 
 public record UpdatePacienteRequest(
-        @NotNull Long professionalId,
         String email,
         String displayName,
         LocalDate birthdate,

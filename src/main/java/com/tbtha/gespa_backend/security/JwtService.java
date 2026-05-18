@@ -1,6 +1,7 @@
 package com.tbtha.gespa_backend.security;
 
 import com.tbtha.gespa_backend.entities.Usuario;
+import com.tbtha.gespa_backend.entities.enums.UserRole;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -27,6 +28,10 @@ public class JwtService {
     }
 
     public String generateAccessToken(Usuario usuario) {
+        return generateAccessToken(usuario, usuario.getRole());
+    }
+
+    public String generateAccessToken(Usuario usuario, UserRole role) {
         Instant now = Instant.now();
         Instant exp = now.plusSeconds(accessTokenExpirationSeconds);
 
@@ -34,7 +39,7 @@ public class JwtService {
                 .subject(usuario.getEmail())
                 .claims(Map.of(
                         "uid", usuario.getId(),
-                        "role", usuario.getRole().name()
+                        "role", role.name()
                 ))
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(exp))
@@ -53,6 +58,11 @@ public class JwtService {
 
     public String extractUsername(String token) {
         return parseClaims(token).getSubject();
+    }
+
+    public UserRole extractRole(String token) {
+        String role = parseClaims(token).get("role", String.class);
+        return role == null ? null : UserRole.valueOf(role);
     }
 
     public long getAccessTokenExpirationSeconds() {

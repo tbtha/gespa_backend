@@ -7,6 +7,7 @@ import com.tbtha.gespa_backend.entities.enums.UserRole;
 import com.tbtha.gespa_backend.repositories.PacienteRepository;
 import com.tbtha.gespa_backend.repositories.ProfesionalRepository;
 import com.tbtha.gespa_backend.repositories.UsuarioRepository;
+import com.tbtha.gespa_backend.utils.RutUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -51,10 +52,10 @@ public class DefaultUsersInitializer implements CommandLineRunner {
     @Value("${app.seed.defaults.professional-specialty:Medicina General}")
     private String professionalSpecialty;
 
-    @Value("${app.seed.defaults.professional-rut:RUT-PRO-DEMO-001}")
+    @Value("${app.seed.defaults.professional-rut:12345678-5}")
     private String professionalRut;
 
-    @Value("${app.seed.defaults.patient-rut:RUT-DEMO-001}")
+    @Value("${app.seed.defaults.patient-rut:11111111-1}")
     private String patientRut;
 
     public DefaultUsersInitializer(UsuarioRepository usuarioRepository,
@@ -92,7 +93,7 @@ public class DefaultUsersInitializer implements CommandLineRunner {
             sharedPassword
         );
 
-        Profesional profesional = ensureProfessional(professionalUser);
+        ensureProfessional(professionalUser);
 
         Usuario patientUser = ensureUser(
                 patientEmail,
@@ -101,7 +102,7 @@ public class DefaultUsersInitializer implements CommandLineRunner {
             sharedPassword
         );
 
-        ensurePatient(patientUser, profesional);
+        ensurePatient(patientUser);
     }
 
     private Usuario ensureUser(String email, String displayName, UserRole role, String rawPassword) {
@@ -162,11 +163,6 @@ public class DefaultUsersInitializer implements CommandLineRunner {
                         changed = true;
                     }
 
-                    if (existing.getLicenseNumber() == null || existing.getLicenseNumber().isBlank()) {
-                        existing.setLicenseNumber("LIC-DEMO-" + professionalUser.getId());
-                        changed = true;
-                    }
-
                     return changed ? profesionalRepository.save(existing) : existing;
                 })
                 .orElseGet(() -> {
@@ -174,33 +170,63 @@ public class DefaultUsersInitializer implements CommandLineRunner {
                     profesional.setUsuario(professionalUser);
                     profesional.setRut(resolveUniqueProfessionalRut(professionalUser.getId()));
                     profesional.setSpecialty(professionalSpecialty);
-                    profesional.setLicenseNumber("LIC-DEMO-" + professionalUser.getId());
                     return profesionalRepository.save(profesional);
                 });
     }
 
-    private Paciente ensurePatient(Usuario patientUser, Profesional profesional) {
+    private Paciente ensurePatient(Usuario patientUser) {
         return pacienteRepository.findById(patientUser.getId())
                 .orElseGet(() -> {
                     Paciente paciente = new Paciente();
                     paciente.setUsuario(patientUser);
-                    paciente.setProfesional(profesional);
+                    paciente.setProfesional(null);
                     paciente.setRut(resolveUniqueRut(patientUser.getId()));
                     return pacienteRepository.save(paciente);
                 });
     }
 
     private String resolveUniqueRut(Long patientUserId) {
-        if (!pacienteRepository.existsByRut(patientRut)) {
-            return patientRut;
+        String normalized = RutUtils.normalize(patientRut);
+        if (!RutUtils.isValid(normalized)) {
+            throw new IllegalStateException("RUT de seed inválido para paciente: " + patientRut);
         }
-        return "RUT-DEMO-" + patientUserId;
+        if (!pacienteRepository.existsByRut(normalized)) {
+            return normalized;
+        }
+        return buildValidRutFromBase(20_000_000L + patientUserId);
     }
 
     private String resolveUniqueProfessionalRut(Long professionalUserId) {
-        if (!profesionalRepository.existsByRut(professionalRut)) {
-            return professionalRut;
+        String normalized = RutUtils.normalize(professionalRut);
+        if (!RutUtils.isValid(normalized)) {
+            throw new IllegalStateException("RUT de seed inválido para profesional: " + professionalRut);
         }
-        return "RUT-PRO-" + professionalUserId;
+        if (!profesionalRepository.existsByRut(normalized)) {
+            return normalized;
+        }
+        return buildValidRutFromBase(30_000_000L + professionalUserId);
+    }
+
+    private String buildValidRutFromBase(long body) {
+        String numberPart = String.valueOf(Math.max(body, 1));
+
+        int sum = 0;
+        int multiplier = 2;
+        for (int i = numberPart.length() - 1; i >= 0; i--) {
+            sum += Character.getNumericValue(numberPart.charAt(i)) * multiplier;
+            multiplier = multiplier == 7 ? 2 : multiplier + 1;
+        }
+
+        int remainder = 11 - (sum % 11);
+        String dv;
+        if (remainder == 11) {
+            dv = "0";
+        } else if (remainder == 10) {
+            dv = "K";
+        } else {
+            dv = String.valueOf(remainder);
+        }
+
+        return numberPart + "-" + dv;
     }
 }

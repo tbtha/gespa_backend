@@ -122,17 +122,13 @@ gespa_backend/
 - `GET /api/pacientes/{id}/notas`
 - `PUT /api/notas/{id}`
 
-### 6.7 Evolución clínica
-- `POST /api/pacientes/{id}/evolucion`
-- `GET /api/pacientes/{id}/evolucion?indicador=peso`
-
-### 6.8 Documentos
+### 6.7 Documentos
 - `POST /api/pacientes/{id}/documentos`
 - `GET /api/pacientes/{id}/documentos`
 - `GET /api/documentos/{id}`
 - `PATCH /api/documentos/{id}/compartir`
 
-### 6.9 Consentimientos y auditoría
+### 6.8 Consentimientos y auditoría
 - `POST /api/pacientes/{id}/consentimientos`
 - `PATCH /api/consentimientos/{id}/revocar`
 - `GET /api/auditoria` (rol admin/profesional autorizado)

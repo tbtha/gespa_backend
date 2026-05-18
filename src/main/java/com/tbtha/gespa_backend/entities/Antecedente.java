@@ -17,18 +17,14 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
 
 import java.time.OffsetDateTime;
 
 @Entity
 @Table(
     name = "antecedentes",
-    uniqueConstraints = {
-        @UniqueConstraint(name = "uk_antecedente_patient_professional", columnNames = {"patient_id", "professional_id"})
-    },
     indexes = {
-        @Index(name = "idx_antecedente_patient_professional", columnList = "patient_id, professional_id")
+        @Index(name = "idx_antecedente_patient", columnList = "patient_id")
     }
 )
 public class Antecedente {
@@ -41,8 +37,8 @@ public class Antecedente {
     @JoinColumn(name = "patient_id", nullable = false)
     private Paciente paciente;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "professional_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "professional_id")
     private Profesional profesional;
 
     @Column(name = "enfermedades_base", columnDefinition = "TEXT")

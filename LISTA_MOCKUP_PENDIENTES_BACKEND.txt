@@ -39,17 +39,6 @@ FALTA INTEGRAR DESDE EL MOCKUP
 - Hábitos: alcohol, tabaco, drogas, actividad física.
 - Operaciones previas, medicamentos regulares, otros antecedentes.
 
-4) Ficha paciente - Evolución  ✅ INTEGRADO
-- Entidad/tabla registros_evolucion.
-- Indicadores extensibles via enum TipoIndicador (peso, talla, IMC, presión sistólica/diastólica,
-  FC, FR, temperatura, saturación O2, glicemia, HbA1c, colesterol, triglicéridos, creatinina, OTRO+etiqueta).
-- POST   /api/pacientes/{id}/evolucion
-- GET    /api/pacientes/{id}/evolucion
-- GET    /api/pacientes/{id}/evolucion/resumen  (último valor por indicador)
-- GET    /api/pacientes/{id}/evolucion/serie?tipo=PESO&desde=2025-01-01&hasta=2025-12-31
-- GET    /api/citas/{id}/evolucion
-- DELETE /api/evolucion/{id}
-
 5) Ficha paciente - Documentos
 - Subida de archivo.
 - Listado por paciente.

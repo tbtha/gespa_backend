@@ -32,8 +32,8 @@ public class Paciente {
     @JoinColumn(name = "id")
     private Usuario usuario;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "professional_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "professional_id")
     private Profesional profesional;
 
     @Column(nullable = false, unique = true, length = 20)

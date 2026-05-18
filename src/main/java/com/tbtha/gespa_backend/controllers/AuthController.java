@@ -2,6 +2,8 @@ package com.tbtha.gespa_backend.controllers;
 
 import com.tbtha.gespa_backend.auth.AuthService;
 import com.tbtha.gespa_backend.dtos.AcceptProfessionalInvitationRequest;
+import com.tbtha.gespa_backend.dtos.CheckEmailRequest;
+import com.tbtha.gespa_backend.dtos.CheckEmailResponse;
 import com.tbtha.gespa_backend.dtos.LoginRequest;
 import com.tbtha.gespa_backend.dtos.LoginResponse;
 import com.tbtha.gespa_backend.dtos.MeResponse;
@@ -11,6 +13,7 @@ import com.tbtha.gespa_backend.dtos.PasswordResetRequestResponse;
 import com.tbtha.gespa_backend.dtos.RefreshTokenRequest;
 import com.tbtha.gespa_backend.dtos.RegisterPatientRequest;
 import com.tbtha.gespa_backend.dtos.RegisterPatientResponse;
+import com.tbtha.gespa_backend.dtos.SwitchRoleRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -30,14 +33,24 @@ public class AuthController {
         this.authService = authService;
     }
 
-    @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ResponseEntity.ok(authService.login(request));
+    @PostMapping("/login/professional")
+    public ResponseEntity<LoginResponse> loginProfessional(@Valid @RequestBody LoginRequest request) {
+        return ResponseEntity.ok(authService.loginAsProfessional(request));
+    }
+
+    @PostMapping("/login/patient")
+    public ResponseEntity<LoginResponse> loginPatient(@Valid @RequestBody LoginRequest request) {
+        return ResponseEntity.ok(authService.loginAsPatient(request));
     }
 
     @PostMapping("/refresh")
     public ResponseEntity<LoginResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
         return ResponseEntity.ok(authService.refresh(request.refreshToken()));
+    }
+
+    @PostMapping("/switch-role")
+    public ResponseEntity<LoginResponse> switchRole(@Valid @RequestBody SwitchRoleRequest request) {
+        return ResponseEntity.ok(authService.switchRole(request.refreshToken(), request.role()));
     }
 
     @PostMapping("/logout")
@@ -79,5 +92,10 @@ public class AuthController {
     @GetMapping("/me")
     public ResponseEntity<MeResponse> me() {
         return ResponseEntity.ok(authService.me());
+    }
+
+    @PostMapping("/check-email")
+    public ResponseEntity<CheckEmailResponse> checkEmail(@RequestBody CheckEmailRequest request) {
+        return ResponseEntity.ok(authService.checkEmail(request.email()));
     }
 }

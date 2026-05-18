@@ -1,5 +1,6 @@
 package com.tbtha.gespa_backend.auth;
 
+import com.tbtha.gespa_backend.dtos.CheckEmailResponse;
 import com.tbtha.gespa_backend.dtos.LoginRequest;
 import com.tbtha.gespa_backend.dtos.LoginResponse;
 import com.tbtha.gespa_backend.dtos.MeResponse;
@@ -12,7 +13,6 @@ import com.tbtha.gespa_backend.dtos.RegisterPatientResponse;
 import com.tbtha.gespa_backend.entities.PasswordResetToken;
 import com.tbtha.gespa_backend.entities.Paciente;
 import com.tbtha.gespa_backend.entities.ProfessionalInvitationToken;
-import com.tbtha.gespa_backend.entities.Profesional;
 import com.tbtha.gespa_backend.entities.RefreshToken;
 import com.tbtha.gespa_backend.entities.Usuario;
 import com.tbtha.gespa_backend.entities.enums.UserRole;
@@ -26,6 +26,8 @@ import com.tbtha.gespa_backend.repositories.RefreshTokenRepository;
 import com.tbtha.gespa_backend.repositories.UsuarioRepository;
 import com.tbtha.gespa_backend.security.AccessControlService;
 import com.tbtha.gespa_backend.security.JwtService;
+import com.tbtha.gespa_backend.services.AuditService;
+import com.tbtha.gespa_backend.utils.RutUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -54,6 +56,7 @@ public class AuthService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtService jwtService;
     private final AccessControlService accessControlService;
+    private final AuditService auditService;
     private final PasswordEncoder passwordEncoder;
     private final long refreshExpirationSeconds;
     private final long passwordResetExpirationSeconds;
@@ -72,11 +75,12 @@ public class AuthService {
                        RefreshTokenRepository refreshTokenRepository,
                        JwtService jwtService,
                        AccessControlService accessControlService,
+                       AuditService auditService,
                        PasswordEncoder passwordEncoder,
                        @Value("${app.jwt.refresh-expiration-seconds:1209600}") long refreshExpirationSeconds,
                        @Value("${app.auth.password-reset.expiration-seconds:3600}") long passwordResetExpirationSeconds,
                        @Value("${app.auth.password-reset.expose-token:false}") boolean exposePasswordResetToken,
-                       @Value("${app.auth.login.max-failed-attempts:5}") int loginMaxFailedAttempts,
+                       @Value("${app.auth.login.max-failed-attempts:10}") int loginMaxFailedAttempts,
                        @Value("${app.auth.login.failed-window-seconds:900}") long loginFailedWindowSeconds,
                        @Value("${app.auth.login.lock-seconds:900}") long loginLockSeconds) {
         this.authenticationManager = authenticationManager;
@@ -88,6 +92,7 @@ public class AuthService {
         this.refreshTokenRepository = refreshTokenRepository;
         this.jwtService = jwtService;
         this.accessControlService = accessControlService;
+        this.auditService = auditService;
         this.passwordEncoder = passwordEncoder;
         this.refreshExpirationSeconds = refreshExpirationSeconds;
         this.passwordResetExpirationSeconds = passwordResetExpirationSeconds;
@@ -98,13 +103,23 @@ public class AuthService {
     }
 
     @Transactional
-    public LoginResponse login(LoginRequest request) {
+    public LoginResponse loginAsProfessional(LoginRequest request) {
+        return login(request, UserRole.PROFESSIONAL);
+    }
+
+    @Transactional
+    public LoginResponse loginAsPatient(LoginRequest request) {
+        return login(request, UserRole.PATIENT);
+    }
+
+    @Transactional
+    public LoginResponse login(LoginRequest request, UserRole requestedRole) {
         String normalizedEmail = normalizeLoginKey(request.email());
         assertLoginNotLocked(normalizedEmail);
 
         try {
             authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(request.email(), request.password())
+                    new UsernamePasswordAuthenticationToken(normalizedEmail, request.password())
             );
         } catch (AuthenticationException ex) {
             registerFailedLogin(normalizedEmail);
@@ -113,7 +128,7 @@ public class AuthService {
 
         clearFailedLogins(normalizedEmail);
 
-        Usuario usuario = usuarioRepository.findByEmail(request.email())
+        Usuario usuario = usuarioRepository.findByEmail(normalizedEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
 
         if (!Boolean.TRUE.equals(usuario.getActive())) {
@@ -122,8 +137,11 @@ public class AuthService {
 
         usuario.setUltimoLogin(OffsetDateTime.now());
 
-        String accessToken = jwtService.generateAccessToken(usuario);
-        String refreshToken = createAndPersistRefreshToken(usuario);
+        UserRole sessionRole = resolveSessionRole(usuario, requestedRole);
+
+        String accessToken = jwtService.generateAccessToken(usuario, sessionRole);
+        String refreshToken = createAndPersistRefreshToken(usuario, sessionRole);
+        auditService.register("LOGIN", "usuarios", usuario.getId(), "role=" + sessionRole.name());
 
         return new LoginResponse(
                 accessToken,
@@ -133,7 +151,7 @@ public class AuthService {
                 usuario.getId(),
                 usuario.getEmail(),
                 usuario.getDisplayName(),
-                usuario.getRole()
+            sessionRole
         );
     }
 
@@ -151,8 +169,12 @@ public class AuthService {
         stored.setRevoked(true);
 
         Usuario usuario = stored.getUser();
-        String newAccessToken = jwtService.generateAccessToken(usuario);
-        String newRefreshToken = createAndPersistRefreshToken(usuario);
+        UserRole sessionRole = stored.getSelectedRole() != null ? stored.getSelectedRole() : usuario.getRole();
+        if (sessionRole == null) {
+            throw new ConflictException("No se pudo determinar el rol de sesión");
+        }
+        String newAccessToken = jwtService.generateAccessToken(usuario, sessionRole);
+        String newRefreshToken = createAndPersistRefreshToken(usuario, sessionRole);
 
         return new LoginResponse(
                 newAccessToken,
@@ -162,7 +184,39 @@ public class AuthService {
                 usuario.getId(),
                 usuario.getEmail(),
                 usuario.getDisplayName(),
-                usuario.getRole()
+            sessionRole
+        );
+    }
+
+    @Transactional
+    public LoginResponse switchRole(String plainRefreshToken, UserRole requestedRole) {
+        String tokenHash = hashToken(plainRefreshToken);
+
+        RefreshToken stored = refreshTokenRepository.findByTokenHash(tokenHash)
+                .orElseThrow(() -> new ResourceNotFoundException("Refresh token inválido"));
+
+        if (stored.isRevoked() || stored.getExpiresAt().isBefore(OffsetDateTime.now())) {
+            throw new ConflictException("Refresh token expirado o revocado");
+        }
+
+        Usuario usuario = stored.getUser();
+        UserRole sessionRole = resolveSessionRole(usuario, requestedRole);
+
+        stored.setRevoked(true);
+
+        String newAccessToken = jwtService.generateAccessToken(usuario, sessionRole);
+        String newRefreshToken = createAndPersistRefreshToken(usuario, sessionRole);
+        auditService.register("SWITCH_ROLE", "usuarios", usuario.getId(), "role=" + sessionRole.name());
+
+        return new LoginResponse(
+                newAccessToken,
+                newRefreshToken,
+                "Bearer",
+                jwtService.getAccessTokenExpirationSeconds(),
+                usuario.getId(),
+                usuario.getEmail(),
+                usuario.getDisplayName(),
+                sessionRole
         );
     }
 
@@ -172,7 +226,23 @@ public class AuthService {
         refreshTokenRepository.findByTokenHash(tokenHash).ifPresent(token -> {
             token.setRevoked(true);
             refreshTokenRepository.save(token);
+            auditService.register("LOGOUT", "usuarios", token.getUser().getId(), null);
         });
+    }
+
+    @Transactional(readOnly = true)
+    public CheckEmailResponse checkEmail(String email) {
+        String normalizedEmail = normalizeLoginKey(email);
+        Usuario usuario = usuarioRepository.findByEmail(normalizedEmail).orElse(null);
+        
+        if (usuario == null) {
+            return new CheckEmailResponse(false, false, false);
+        }
+        
+        boolean hasPatientProfile = pacienteRepository.existsById(usuario.getId());
+        boolean hasProfessionalProfile = profesionalRepository.existsById(usuario.getId());
+        
+        return new CheckEmailResponse(true, hasPatientProfile, hasProfessionalProfile);
     }
 
     @Transactional(readOnly = true)
@@ -182,7 +252,7 @@ public class AuthService {
                 actor.getId(),
                 actor.getEmail(),
                 actor.getDisplayName(),
-                actor.getRole(),
+                accessControlService.currentUserRole(),
                 actor.getActive()
         );
     }
@@ -190,8 +260,9 @@ public class AuthService {
     @Transactional
     public PasswordResetRequestResponse requestPasswordReset(PasswordResetRequest request) {
         String genericMessage = "Si el correo existe, se ha generado un token de recuperación";
+        String normalizedEmail = normalizeLoginKey(request.email());
 
-        return usuarioRepository.findByEmail(request.email())
+        return usuarioRepository.findByEmail(normalizedEmail)
                 .map(user -> {
                     if (!Boolean.TRUE.equals(user.getActive())) {
                         return new PasswordResetRequestResponse(genericMessage, null);
@@ -207,6 +278,7 @@ public class AuthService {
                     token.setExpiresAt(OffsetDateTime.now().plusSeconds(passwordResetExpirationSeconds));
                     token.setUsed(false);
                     passwordResetTokenRepository.save(token);
+                    auditService.register("PASSWORD_RESET_REQUEST", "usuarios", user.getId());
 
                     return new PasswordResetRequestResponse(
                             genericMessage,
@@ -235,6 +307,7 @@ public class AuthService {
 
         refreshTokenRepository.findAllByUser_IdAndRevokedFalse(user.getId())
                 .forEach(token -> token.setRevoked(true));
+        auditService.register("PASSWORD_RESET_CONFIRM", "usuarios", user.getId());
     }
 
     @Transactional
@@ -258,34 +331,56 @@ public class AuthService {
 
         invitation.setUsed(true);
         invitation.setUsedAt(OffsetDateTime.now());
+        auditService.register("INVITATION_ACCEPT", "usuarios", user.getId());
     }
 
     @Transactional
     public RegisterPatientResponse registerPatient(RegisterPatientRequest request) {
-        if (usuarioRepository.existsByEmail(request.email())) {
-            throw new ConflictException("Ya existe un usuario con el email indicado");
+        String normalizedEmail = request.email().trim().toLowerCase();
+        Usuario existingUser = usuarioRepository.findByEmail(normalizedEmail).orElse(null);
+        if (existingUser != null) {
+            if (existingUser.getRole() != UserRole.PROFESSIONAL && existingUser.getRole() != UserRole.PATIENT) {
+                throw new ConflictException("Ya existe un usuario con el email indicado");
+            }
+            if (pacienteRepository.existsById(existingUser.getId())) {
+                throw new ConflictException("Ya existe un paciente con el email indicado");
+            }
         }
 
-        if (pacienteRepository.existsByRut(request.rut())) {
+        String normalizedRut = RutUtils.normalize(request.rut());
+        if (pacienteRepository.existsByRut(normalizedRut)) {
             throw new ConflictException("Ya existe un paciente con el RUT indicado");
         }
 
-        Profesional assignedProfessional = profesionalRepository.findAll().stream().findFirst()
-                .orElseThrow(() -> new ConflictException("No hay profesionales disponibles para registro"));
-
-        Usuario user = new Usuario();
-        user.setEmail(request.email());
-        user.setDisplayName(request.displayName());
-        user.setRole(UserRole.PATIENT);
-        user.setActive(true);
-        user.setPasswordHash(passwordEncoder.encode(request.password()));
-        usuarioRepository.save(user);
+        Usuario user;
+        if (existingUser != null) {
+            user = existingUser;
+            if (request.displayName() != null && !request.displayName().isBlank()) {
+                user.setDisplayName(request.displayName());
+            }
+            if (!Boolean.TRUE.equals(user.getActive())) {
+                user.setActive(true);
+            }
+            usuarioRepository.save(user);
+        } else {
+            if (request.password() == null || request.password().isBlank()) {
+                throw new ConflictException("Se requiere contraseña para crear una cuenta nueva");
+            }
+            user = new Usuario();
+            user.setEmail(normalizedEmail);
+            user.setDisplayName(request.displayName());
+            user.setRole(UserRole.PATIENT);
+            user.setActive(true);
+            user.setPasswordHash(passwordEncoder.encode(request.password()));
+            usuarioRepository.save(user);
+        }
 
         Paciente paciente = new Paciente();
         paciente.setUsuario(user);
-        paciente.setProfesional(assignedProfessional);
-        paciente.setRut(request.rut());
+        paciente.setProfesional(null);
+        paciente.setRut(normalizedRut);
         pacienteRepository.save(paciente);
+        auditService.register("REGISTER_PATIENT", "usuarios", user.getId());
 
         return new RegisterPatientResponse(
                 user.getId(),
@@ -338,17 +433,44 @@ public class AuthService {
         return email == null ? "" : email.trim().toLowerCase();
     }
 
-    private String createAndPersistRefreshToken(Usuario usuario) {
+    private String createAndPersistRefreshToken(Usuario usuario, UserRole selectedRole) {
         String plainToken = UUID.randomUUID() + "." + UUID.randomUUID();
 
         RefreshToken token = new RefreshToken();
         token.setUser(usuario);
+        token.setSelectedRole(selectedRole);
         token.setTokenHash(hashToken(plainToken));
         token.setExpiresAt(OffsetDateTime.now().plusSeconds(refreshExpirationSeconds));
         token.setRevoked(false);
         refreshTokenRepository.save(token);
 
         return plainToken;
+    }
+
+    private UserRole resolveSessionRole(Usuario usuario, UserRole requestedRole) {
+        if (requestedRole == null) {
+            return usuario.getRole();
+        }
+
+        if (usuario.getRole() == UserRole.ADMIN) {
+            return UserRole.ADMIN;
+        }
+
+        return switch (requestedRole) {
+            case PATIENT -> {
+                if (!pacienteRepository.existsById(usuario.getId())) {
+                    throw new ConflictException("La cuenta no tiene perfil de paciente");
+                }
+                yield UserRole.PATIENT;
+            }
+            case PROFESSIONAL -> {
+                if (!profesionalRepository.existsById(usuario.getId())) {
+                    throw new ConflictException("La cuenta no tiene perfil profesional");
+                }
+                yield UserRole.PROFESSIONAL;
+            }
+            default -> usuario.getRole();
+        };
     }
 
     private String hashToken(String plainToken) {

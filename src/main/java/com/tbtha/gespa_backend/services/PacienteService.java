@@ -8,7 +8,6 @@ import com.tbtha.gespa_backend.dtos.PagedResponse;
 import com.tbtha.gespa_backend.dtos.UpdatePacienteRequest;
 import com.tbtha.gespa_backend.entities.Paciente;
 import com.tbtha.gespa_backend.entities.ProfessionalInvitationToken;
-import com.tbtha.gespa_backend.entities.Profesional;
 import com.tbtha.gespa_backend.entities.Usuario;
 import com.tbtha.gespa_backend.entities.enums.EstadoCivil;
 import com.tbtha.gespa_backend.entities.enums.Prevision;
@@ -17,9 +16,9 @@ import com.tbtha.gespa_backend.exceptions.ConflictException;
 import com.tbtha.gespa_backend.exceptions.ResourceNotFoundException;
 import com.tbtha.gespa_backend.repositories.PacienteRepository;
 import com.tbtha.gespa_backend.repositories.ProfessionalInvitationTokenRepository;
-import com.tbtha.gespa_backend.repositories.ProfesionalRepository;
 import com.tbtha.gespa_backend.repositories.UsuarioRepository;
 import com.tbtha.gespa_backend.security.AccessControlService;
+import com.tbtha.gespa_backend.utils.RutUtils;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
 import org.springframework.beans.factory.annotation.Value;
@@ -43,7 +42,6 @@ import java.util.UUID;
 public class PacienteService {
 
     private final PacienteRepository pacienteRepository;
-    private final ProfesionalRepository profesionalRepository;
     private final UsuarioRepository usuarioRepository;
     private final ProfessionalInvitationTokenRepository invitationTokenRepository;
     private final AccessControlService accessControlService;
@@ -51,14 +49,12 @@ public class PacienteService {
     private final long invitationExpirationSeconds;
 
     public PacienteService(PacienteRepository pacienteRepository,
-                           ProfesionalRepository profesionalRepository,
                            UsuarioRepository usuarioRepository,
                            ProfessionalInvitationTokenRepository invitationTokenRepository,
                            AccessControlService accessControlService,
                            PasswordEncoder passwordEncoder,
                            @Value("${app.auth.invitation.expiration-seconds:604800}") long invitationExpirationSeconds) {
         this.pacienteRepository = pacienteRepository;
-        this.profesionalRepository = profesionalRepository;
         this.usuarioRepository = usuarioRepository;
         this.invitationTokenRepository = invitationTokenRepository;
         this.accessControlService = accessControlService;
@@ -68,29 +64,51 @@ public class PacienteService {
 
     @Transactional
     public PacienteResponse create(CreatePacienteRequest request) {
-        accessControlService.assertCanAccessProfesional(request.professionalId());
-
-        if (usuarioRepository.existsByEmail(request.email())) {
-            throw new ConflictException("Ya existe un usuario con el email indicado");
+        Usuario actor = accessControlService.currentUsuario();
+        if (actor.getRole() != UserRole.ADMIN && actor.getRole() != UserRole.PROFESSIONAL) {
+            throw new org.springframework.security.access.AccessDeniedException("No tienes permisos para crear pacientes");
         }
-        if (pacienteRepository.existsByRut(request.rut())) {
+
+        String normalizedEmail = request.email().trim().toLowerCase();
+        String normalizedRut = RutUtils.normalize(request.rut());
+
+        Usuario existingUser = usuarioRepository.findByEmail(normalizedEmail).orElse(null);
+        if (existingUser != null) {
+            if (existingUser.getRole() != UserRole.PROFESSIONAL && existingUser.getRole() != UserRole.PATIENT) {
+                throw new ConflictException("Ya existe un usuario con el email indicado");
+            }
+            if (pacienteRepository.existsById(existingUser.getId())) {
+                throw new ConflictException("Ya existe un paciente con el email indicado");
+            }
+        }
+        if (pacienteRepository.existsByRut(normalizedRut)) {
             throw new ConflictException("Ya existe un paciente con el RUT indicado");
         }
 
-        Profesional profesional = getProfesional(request.professionalId());
-
-        Usuario usuario = new Usuario();
-        usuario.setEmail(request.email());
-        usuario.setPasswordHash(passwordEncoder.encode(request.password()));
-        usuario.setDisplayName(request.displayName());
-        usuario.setRole(UserRole.PATIENT);
-        usuario.setActive(true);
-        usuarioRepository.save(usuario);
+        Usuario usuario;
+        if (existingUser != null) {
+            usuario = existingUser;
+            if (request.displayName() != null && !request.displayName().isBlank()) {
+                usuario.setDisplayName(request.displayName());
+            }
+            if (!Boolean.TRUE.equals(usuario.getActive())) {
+                usuario.setActive(true);
+            }
+            usuarioRepository.save(usuario);
+        } else {
+            usuario = new Usuario();
+            usuario.setEmail(normalizedEmail);
+            usuario.setPasswordHash(passwordEncoder.encode(request.password()));
+            usuario.setDisplayName(request.displayName());
+            usuario.setRole(UserRole.PATIENT);
+            usuario.setActive(true);
+            usuarioRepository.save(usuario);
+        }
 
         Paciente paciente = new Paciente();
         paciente.setUsuario(usuario);
-        paciente.setProfesional(profesional);
-        paciente.setRut(request.rut());
+        paciente.setProfesional(null);
+        paciente.setRut(normalizedRut);
         paciente.setBirthdate(request.birthdate());
         paciente.setGender(request.gender());
         paciente.setPrevision(request.prevision());
@@ -171,19 +189,8 @@ public class PacienteService {
     @Transactional
     public PacienteResponse update(Long id, UpdatePacienteRequest request) {
         Paciente paciente = getPaciente(id);
-        Usuario actor = accessControlService.currentUsuario();
 
         accessControlService.assertCanAccessPaciente(id);
-
-        Profesional profesional;
-        if (actor.getRole() == UserRole.PATIENT) {
-            profesional = paciente.getProfesional();
-        } else {
-            accessControlService.assertCanAccessProfesional(request.professionalId());
-            profesional = getProfesional(request.professionalId());
-        }
-
-        paciente.setProfesional(profesional);
         if (request.email() != null && !request.email().isBlank()) {
             String nextEmail = request.email().trim().toLowerCase();
             String currentEmail = String.valueOf(paciente.getUsuario().getEmail()).trim().toLowerCase();
@@ -210,42 +217,67 @@ public class PacienteService {
 
     @Transactional
     public PatientInvitationResponse createPatientInvitation(CreatePatientInvitationRequest request) {
-        if (usuarioRepository.existsByEmail(request.email())) {
-            throw new ConflictException("Ya existe un usuario con el email indicado");
+        Usuario actor = accessControlService.currentUsuario();
+        if (actor.getRole() != UserRole.ADMIN && actor.getRole() != UserRole.PROFESSIONAL) {
+            throw new org.springframework.security.access.AccessDeniedException("No tienes permisos para crear invitaciones de paciente");
         }
 
-        if (pacienteRepository.existsByRut(request.rut())) {
+        String normalizedEmail = request.email().trim().toLowerCase();
+        Usuario existingUser = usuarioRepository.findByEmail(normalizedEmail).orElse(null);
+        if (existingUser != null) {
+            if (existingUser.getRole() != UserRole.PROFESSIONAL && existingUser.getRole() != UserRole.PATIENT) {
+                throw new ConflictException("Ya existe un usuario con el email indicado");
+            }
+            if (pacienteRepository.existsById(existingUser.getId())) {
+                throw new ConflictException("Ya existe un paciente con el email indicado");
+            }
+        }
+
+        String normalizedRut = RutUtils.normalize(request.rut());
+
+        if (pacienteRepository.existsByRut(normalizedRut)) {
             throw new ConflictException("Ya existe un paciente con el RUT indicado");
         }
 
-        Usuario actor = accessControlService.currentUsuario();
-        Long professionalId = resolveProfessionalIdForInvitation(actor, request.professionalId());
-        Profesional profesional = getProfesional(professionalId);
-
-        Usuario user = new Usuario();
-        user.setEmail(request.email());
-        user.setDisplayName(request.displayName());
-        user.setRole(UserRole.PATIENT);
-        user.setActive(false);
-        user.setPasswordHash(passwordEncoder.encode(generateTemporaryPassword()));
-        usuarioRepository.save(user);
+        Usuario user;
+        if (existingUser != null) {
+            user = existingUser;
+            if (request.displayName() != null && !request.displayName().isBlank()) {
+                user.setDisplayName(request.displayName());
+            }
+            usuarioRepository.save(user);
+        } else {
+            user = new Usuario();
+            user.setEmail(normalizedEmail);
+            user.setDisplayName(request.displayName());
+            user.setRole(UserRole.PATIENT);
+            user.setActive(false);
+            user.setPasswordHash(passwordEncoder.encode(generateTemporaryPassword()));
+            usuarioRepository.save(user);
+        }
 
         Paciente paciente = new Paciente();
         paciente.setUsuario(user);
-        paciente.setProfesional(profesional);
-        paciente.setRut(request.rut());
+        paciente.setProfesional(null);
+        paciente.setRut(normalizedRut);
         pacienteRepository.save(paciente);
 
-        String plainToken = UUID.randomUUID() + "." + UUID.randomUUID();
+        String plainToken = null;
+        OffsetDateTime expiresAt = null;
 
-        invitationTokenRepository.deleteByUser_Id(user.getId());
+        if (existingUser == null || !Boolean.TRUE.equals(user.getActive())) {
+            plainToken = UUID.randomUUID() + "." + UUID.randomUUID();
 
-        ProfessionalInvitationToken token = new ProfessionalInvitationToken();
-        token.setUser(user);
-        token.setTokenHash(hashToken(plainToken));
-        token.setExpiresAt(OffsetDateTime.now().plusSeconds(invitationExpirationSeconds));
-        token.setUsed(false);
-        invitationTokenRepository.save(token);
+            invitationTokenRepository.deleteByUser_Id(user.getId());
+
+            ProfessionalInvitationToken token = new ProfessionalInvitationToken();
+            token.setUser(user);
+            token.setTokenHash(hashToken(plainToken));
+            token.setExpiresAt(OffsetDateTime.now().plusSeconds(invitationExpirationSeconds));
+            token.setUsed(false);
+            invitationTokenRepository.save(token);
+            expiresAt = token.getExpiresAt();
+        }
 
         return new PatientInvitationResponse(
                 user.getId(),
@@ -253,16 +285,11 @@ public class PacienteService {
                 user.getEmail(),
                 user.getDisplayName(),
                 paciente.getRut(),
-                profesional.getId(),
+                null,
                 user.getRole(),
                 plainToken,
-                token.getExpiresAt()
+            expiresAt
         );
-    }
-
-    private Profesional getProfesional(Long id) {
-        return profesionalRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Profesional no encontrado"));
     }
 
     private Paciente getPaciente(Long id) {
@@ -270,21 +297,6 @@ public class PacienteService {
                 .orElseThrow(() -> new ResourceNotFoundException("Paciente no encontrado"));
     }
 
-    private Long resolveProfessionalIdForInvitation(Usuario actor, Long requestProfessionalId) {
-        if (actor.getRole() == UserRole.PROFESSIONAL) {
-            return actor.getId();
-        }
-
-        if (actor.getRole() == UserRole.ADMIN && requestProfessionalId != null) {
-            return requestProfessionalId;
-        }
-
-        if (actor.getRole() == UserRole.ADMIN) {
-            throw new ConflictException("Para crear invitación de paciente como admin debes indicar professionalId");
-        }
-
-        throw new ConflictException("No tienes permisos para crear invitaciones de paciente");
-    }
 
     private String generateTemporaryPassword() {
         String seed = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
@@ -306,9 +318,9 @@ public class PacienteService {
                 paciente.getId(),
                 paciente.getUsuario().getEmail(),
                 paciente.getUsuario().getDisplayName(),
-                paciente.getProfesional().getId(),
-                paciente.getProfesional().getUsuario().getDisplayName(),
-                paciente.getProfesional().getSpecialty(),
+                paciente.getProfesional() == null ? null : paciente.getProfesional().getId(),
+                paciente.getProfesional() == null ? null : paciente.getProfesional().getUsuario().getDisplayName(),
+                paciente.getProfesional() == null ? null : paciente.getProfesional().getSpecialty(),
                 paciente.getRut(),
                 paciente.getBirthdate(),
                 paciente.getGender(),

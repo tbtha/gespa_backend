@@ -2,6 +2,8 @@ package com.tbtha.gespa_backend.entities;
 
 import jakarta.persistence.*;
 
+import com.tbtha.gespa_backend.entities.enums.UserRole;
+
 import java.time.OffsetDateTime;
 
 @Entity
@@ -27,6 +29,10 @@ public class RefreshToken {
 
     @Column(name = "revoked", nullable = false)
     private boolean revoked = false;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "selected_role", length = 20)
+    private UserRole selectedRole;
 
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
@@ -70,6 +76,14 @@ public class RefreshToken {
 
     public void setRevoked(boolean revoked) {
         this.revoked = revoked;
+    }
+
+    public UserRole getSelectedRole() {
+        return selectedRole;
+    }
+
+    public void setSelectedRole(UserRole selectedRole) {
+        this.selectedRole = selectedRole;
     }
 
     public OffsetDateTime getCreatedAt() {

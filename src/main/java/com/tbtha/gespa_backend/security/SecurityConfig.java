@@ -22,9 +22,12 @@ import jakarta.servlet.http.HttpServletResponse;
 public class SecurityConfig {
 
         private final JwtAuthenticationFilter jwtAuthenticationFilter;
+        private final ContentTypeNormalizationFilter contentTypeNormalizationFilter;
 
-        public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+        public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
+                              ContentTypeNormalizationFilter contentTypeNormalizationFilter) {
                 this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+                this.contentTypeNormalizationFilter = contentTypeNormalizationFilter;
         }
 
     @Bean
@@ -51,12 +54,14 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/api/health",
-                                                                "/api/auth/login",
-                                                                "/api/auth/refresh",
-                                                                "/api/auth/password-reset/request",
-                                                                "/api/auth/password-reset/confirm",
-                                                                "/api/auth/invitations/accept",
-                                                                "/api/auth/register/patient",
+                                "/api/auth/login/professional",
+                                "/api/auth/login/patient",
+                                "/api/auth/refresh",
+                                "/api/auth/password-reset/request",
+                                "/api/auth/password-reset/confirm",
+                                "/api/auth/invitations/accept",
+                                "/api/auth/register/patient",
+                                "/api/auth/check-email",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/v3/api-docs/**")
@@ -65,6 +70,7 @@ public class SecurityConfig {
                                                 .requestMatchers("/api/dashboard/**").hasAnyRole("ADMIN", "PROFESSIONAL")
                         .anyRequest()
                         .authenticated())
+                                .addFilterBefore(contentTypeNormalizationFilter, UsernamePasswordAuthenticationFilter.class)
                                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

@@ -29,17 +29,20 @@ public class NotaService {
     private final ProfesionalRepository profesionalRepository;
     private final CitaRepository citaRepository;
     private final AccessControlService accessControlService;
+    private final AuditService auditService;
 
     public NotaService(NotaRepository notaRepository,
                        PacienteRepository pacienteRepository,
                        ProfesionalRepository profesionalRepository,
                        CitaRepository citaRepository,
-                       AccessControlService accessControlService) {
+                       AccessControlService accessControlService,
+                       AuditService auditService) {
         this.notaRepository = notaRepository;
         this.pacienteRepository = pacienteRepository;
         this.profesionalRepository = profesionalRepository;
         this.citaRepository = citaRepository;
         this.accessControlService = accessControlService;
+        this.auditService = auditService;
     }
 
     @Transactional
@@ -67,11 +70,14 @@ public class NotaService {
         nota.setPlan(request.plan());
         nota.setIsPrivate(request.isPrivate() == null ? true : request.isPrivate());
 
-        return toResponse(notaRepository.save(nota));
+        Nota saved = notaRepository.save(nota);
+        auditService.register("CREATE_NOTE", "notas", saved.getId(), "pacienteId=" + pacienteId);
+        return toResponse(saved);
     }
 
     @Transactional(readOnly = true)
     public List<NotaResponse> findByPaciente(Long pacienteId) {
+        accessControlService.assertCanAccessPaciente(pacienteId);
         if (!pacienteRepository.existsById(pacienteId)) {
             throw new ResourceNotFoundException("Paciente no encontrado");
         }
@@ -104,12 +110,15 @@ public class NotaService {
             nota.setIsPrivate(request.isPrivate());
         }
 
-        return toResponse(notaRepository.save(nota));
+        Nota saved = notaRepository.save(nota);
+        auditService.register("UPDATE_NOTE", "notas", saved.getId(), null);
+        return toResponse(saved);
     }
 
     @Transactional
     public void delete(Long id) {
         Nota nota = findAccessibleNota(id);
+        auditService.register("DELETE_NOTE", "notas", nota.getId(), null);
         notaRepository.delete(nota);
     }
 

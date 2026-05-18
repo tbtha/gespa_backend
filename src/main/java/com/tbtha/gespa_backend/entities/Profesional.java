@@ -23,9 +23,6 @@ public class Profesional {
     @JoinColumn(name = "id")
     private Usuario usuario;
 
-    @Column(name = "license_number", unique = true, length = 100)
-    private String licenseNumber;
-
     @Column(nullable = false, unique = true, length = 20)
     private String rut;
 
@@ -62,14 +59,6 @@ public class Profesional {
 
     public void setUsuario(Usuario usuario) {
         this.usuario = usuario;
-    }
-
-    public String getLicenseNumber() {
-        return licenseNumber;
-    }
-
-    public void setLicenseNumber(String licenseNumber) {
-        this.licenseNumber = licenseNumber;
     }
 
     public String getRut() {

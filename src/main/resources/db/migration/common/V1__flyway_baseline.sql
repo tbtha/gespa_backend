@@ -1,0 +1,2 @@
+-- Flyway baseline migration.
+-- Mantiene historial de migraciones y habilita evoluciones automáticas en cada arranque.

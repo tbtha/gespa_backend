@@ -11,6 +11,7 @@ import com.tbtha.gespa_backend.exceptions.ResourceNotFoundException;
 import com.tbtha.gespa_backend.repositories.ProfesionalRepository;
 import com.tbtha.gespa_backend.repositories.UsuarioRepository;
 import com.tbtha.gespa_backend.security.AccessControlService;
+import com.tbtha.gespa_backend.utils.RutUtils;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -47,17 +48,14 @@ public class ProfesionalService {
             throw new ConflictException("Ya existe un usuario con el email indicado");
         }
 
-        if (request.licenseNumber() != null && !request.licenseNumber().isBlank()
-                && profesionalRepository.existsByLicenseNumber(request.licenseNumber())) {
-            throw new ConflictException("Ya existe un profesional con ese número de registro");
-        }
+        String normalizedRut = RutUtils.normalize(request.rut());
 
-        if (profesionalRepository.existsByRut(request.rut())) {
+        if (profesionalRepository.existsByRut(normalizedRut)) {
             throw new ConflictException("Ya existe un profesional con ese RUT");
         }
 
         Usuario usuario = new Usuario();
-        usuario.setEmail(request.email());
+        usuario.setEmail(request.email().trim().toLowerCase());
         usuario.setPasswordHash(passwordEncoder.encode(request.password()));
         usuario.setDisplayName(request.displayName());
         usuario.setRole(UserRole.PROFESSIONAL);
@@ -66,8 +64,7 @@ public class ProfesionalService {
 
         Profesional profesional = new Profesional();
         profesional.setUsuario(usuario);
-        profesional.setRut(request.rut());
-        profesional.setLicenseNumber(request.licenseNumber());
+        profesional.setRut(normalizedRut);
         profesional.setSpecialty(request.specialty());
         profesional.setPhone(request.phone());
         profesional.setAddress(request.address());
@@ -101,20 +98,14 @@ public class ProfesionalService {
         Profesional profesional = profesionalRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Profesional no encontrado"));
 
-        String newLicense = request.licenseNumber();
-        if (newLicense != null && !newLicense.isBlank()
-                && profesionalRepository.existsByLicenseNumberAndIdNot(newLicense, id)) {
-            throw new ConflictException("Ya existe un profesional con ese número de registro");
-        }
-
-        if (profesionalRepository.existsByRutAndIdNot(request.rut(), id)) {
+        String normalizedRut = RutUtils.normalize(request.rut());
+        if (profesionalRepository.existsByRutAndIdNot(normalizedRut, id)) {
             throw new ConflictException("Ya existe un profesional con ese RUT");
         }
 
         profesional.getUsuario().setDisplayName(request.displayName());
         profesional.setSpecialty(request.specialty());
-        profesional.setRut(request.rut());
-        profesional.setLicenseNumber(newLicense);
+        profesional.setRut(normalizedRut);
         profesional.setPhone(request.phone());
         profesional.setAddress(request.address());
         profesional.setInstitucion(request.institucion());
@@ -128,11 +119,10 @@ public class ProfesionalService {
                 profesional.getId(),
                 profesional.getUsuario().getEmail(),
                 profesional.getUsuario().getDisplayName(),
-            profesional.getRut(),
+                profesional.getRut(),
                 profesional.getSpecialty(),
-                profesional.getLicenseNumber(),
                 profesional.getPhone(),
-            profesional.getAddress(),
+                profesional.getAddress(),
                 profesional.getInstitucion(),
                 profesional.getDescripcion()
         );

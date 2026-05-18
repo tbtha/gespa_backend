@@ -26,11 +26,15 @@ public class AppUserPrincipal implements UserDetails {
     }
 
     public static AppUserPrincipal fromUsuario(Usuario usuario) {
+        return fromUsuario(usuario, usuario.getRole());
+    }
+
+    public static AppUserPrincipal fromUsuario(Usuario usuario, UserRole role) {
         return new AppUserPrincipal(
                 usuario.getId(),
                 usuario.getEmail(),
                 usuario.getPasswordHash(),
-                usuario.getRole(),
+                role,
                 Boolean.TRUE.equals(usuario.getActive())
         );
     }

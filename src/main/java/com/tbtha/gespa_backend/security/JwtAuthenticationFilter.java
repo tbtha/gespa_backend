@@ -13,6 +13,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 
+import com.tbtha.gespa_backend.entities.enums.UserRole;
+
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
@@ -42,8 +44,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         String username = jwtService.extractUsername(jwt);
+        UserRole role = jwtService.extractRole(jwt);
         if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
             UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+            if (userDetails instanceof AppUserPrincipal principal && role != null) {
+                userDetails = new AppUserPrincipal(
+                        principal.getId(),
+                        principal.getUsername(),
+                        principal.getPassword(),
+                        role,
+                        principal.isEnabled()
+                );
+            }
             UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                     userDetails,
                     null,
