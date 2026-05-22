@@ -2,8 +2,10 @@ package com.tbtha.gespa_backend.entities;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.MapsId;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.PrePersist;
@@ -26,8 +28,12 @@ public class Profesional {
     @Column(nullable = false, unique = true, length = 20)
     private String rut;
 
-    @Column(nullable = false, length = 150)
+    @Column(name = "specialty", nullable = false, length = 150)
     private String specialty;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "specialty_id")
+    private Specialty specialtyRef;
 
     @Column(length = 50)
     private String phone;
@@ -70,11 +76,22 @@ public class Profesional {
     }
 
     public String getSpecialty() {
+        if (specialtyRef != null && specialtyRef.getName() != null && !specialtyRef.getName().isBlank()) {
+            return specialtyRef.getName();
+        }
         return specialty;
     }
 
     public void setSpecialty(String specialty) {
         this.specialty = specialty;
+    }
+
+    public Specialty getSpecialtyRef() {
+        return specialtyRef;
+    }
+
+    public void setSpecialtyRef(Specialty specialtyRef) {
+        this.specialtyRef = specialtyRef;
     }
 
     public String getPhone() {

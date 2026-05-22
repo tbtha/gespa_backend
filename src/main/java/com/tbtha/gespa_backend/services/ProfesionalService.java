@@ -2,13 +2,16 @@ package com.tbtha.gespa_backend.services;
 
 import com.tbtha.gespa_backend.dtos.CreateProfesionalRequest;
 import com.tbtha.gespa_backend.dtos.ProfesionalResponse;
+import com.tbtha.gespa_backend.dtos.SpecialtyResponse;
 import com.tbtha.gespa_backend.dtos.UpdateProfesionalRequest;
 import com.tbtha.gespa_backend.entities.Profesional;
+import com.tbtha.gespa_backend.entities.Specialty;
 import com.tbtha.gespa_backend.entities.Usuario;
 import com.tbtha.gespa_backend.entities.enums.UserRole;
 import com.tbtha.gespa_backend.exceptions.ConflictException;
 import com.tbtha.gespa_backend.exceptions.ResourceNotFoundException;
 import com.tbtha.gespa_backend.repositories.ProfesionalRepository;
+import com.tbtha.gespa_backend.repositories.SpecialtyRepository;
 import com.tbtha.gespa_backend.repositories.UsuarioRepository;
 import com.tbtha.gespa_backend.security.AccessControlService;
 import com.tbtha.gespa_backend.utils.RutUtils;
@@ -23,15 +26,18 @@ import java.util.List;
 public class ProfesionalService {
 
     private final ProfesionalRepository profesionalRepository;
+    private final SpecialtyRepository specialtyRepository;
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
     private final AccessControlService accessControlService;
 
     public ProfesionalService(ProfesionalRepository profesionalRepository,
+                              SpecialtyRepository specialtyRepository,
                               UsuarioRepository usuarioRepository,
                               PasswordEncoder passwordEncoder,
                               AccessControlService accessControlService) {
         this.profesionalRepository = profesionalRepository;
+        this.specialtyRepository = specialtyRepository;
         this.usuarioRepository = usuarioRepository;
         this.passwordEncoder = passwordEncoder;
         this.accessControlService = accessControlService;
@@ -63,9 +69,11 @@ public class ProfesionalService {
         usuarioRepository.save(usuario);
 
         Profesional profesional = new Profesional();
+        Specialty selectedSpecialty = resolveSpecialty(request.specialty());
         profesional.setUsuario(usuario);
         profesional.setRut(normalizedRut);
-        profesional.setSpecialty(request.specialty());
+        profesional.setSpecialtyRef(selectedSpecialty);
+        profesional.setSpecialty(selectedSpecialty.getName());
         profesional.setPhone(request.phone());
         profesional.setAddress(request.address());
         profesional.setInstitucion(request.institucion());
@@ -103,8 +111,11 @@ public class ProfesionalService {
             throw new ConflictException("Ya existe un profesional con ese RUT");
         }
 
+        Specialty selectedSpecialty = resolveSpecialty(request.specialty());
+
         profesional.getUsuario().setDisplayName(request.displayName());
-        profesional.setSpecialty(request.specialty());
+        profesional.setSpecialtyRef(selectedSpecialty);
+        profesional.setSpecialty(selectedSpecialty.getName());
         profesional.setRut(normalizedRut);
         profesional.setPhone(request.phone());
         profesional.setAddress(request.address());
@@ -126,5 +137,22 @@ public class ProfesionalService {
                 profesional.getInstitucion(),
                 profesional.getDescripcion()
         );
+    }
+
+    @Transactional(readOnly = true)
+    public List<SpecialtyResponse> listSpecialties() {
+        return specialtyRepository.findAllByActiveTrueOrderByNameAsc().stream()
+                .map(item -> new SpecialtyResponse(item.getId(), item.getName()))
+                .toList();
+    }
+
+    private Specialty resolveSpecialty(String specialtyName) {
+        if (specialtyName == null || specialtyName.isBlank()) {
+            throw new ConflictException("Debes seleccionar una especialidad válida");
+        }
+
+        return specialtyRepository.findByNameIgnoreCase(specialtyName.trim())
+                .filter(Specialty::isActive)
+                .orElseThrow(() -> new ConflictException("Especialidad inválida"));
     }
 }

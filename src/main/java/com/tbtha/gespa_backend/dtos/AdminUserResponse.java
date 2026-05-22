@@ -7,6 +7,9 @@ public record AdminUserResponse(
         String email,
         String displayName,
         UserRole role,
-        Boolean active
+        Boolean active,
+        Boolean invitationPending,
+        Boolean hasPatientProfile,
+        Boolean hasProfessionalProfile
 ) {
 }

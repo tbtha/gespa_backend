@@ -2,8 +2,13 @@ package com.tbtha.gespa_backend.controllers;
 
 import com.tbtha.gespa_backend.dtos.AdminCreateProfessionalInvitationRequest;
 import com.tbtha.gespa_backend.dtos.AdminResetPasswordResponse;
+import com.tbtha.gespa_backend.dtos.AdminCreateSpecialtyRequest;
+import com.tbtha.gespa_backend.dtos.AdminSpecialtyResponse;
 import com.tbtha.gespa_backend.dtos.AdminUpdateUserStatusRequest;
+import com.tbtha.gespa_backend.dtos.AdminUpdateSpecialtyStatusRequest;
 import com.tbtha.gespa_backend.dtos.AdminUserResponse;
+import com.tbtha.gespa_backend.dtos.CreatePatientInvitationRequest;
+import com.tbtha.gespa_backend.dtos.PatientInvitationResponse;
 import com.tbtha.gespa_backend.dtos.ProfessionalInvitationResponse;
 import com.tbtha.gespa_backend.services.AdminService;
 import jakarta.validation.Valid;
@@ -36,9 +41,36 @@ public class AdminController {
         return ResponseEntity.status(HttpStatus.CREATED).body(adminService.createProfessionalInvitation(request));
     }
 
+    @PostMapping("/patients/invitations")
+    public ResponseEntity<PatientInvitationResponse> createPatientInvitation(
+            @Valid @RequestBody CreatePatientInvitationRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(adminService.createPatientInvitation(request));
+    }
+
     @GetMapping("/users")
     public ResponseEntity<List<AdminUserResponse>> listUsers() {
         return ResponseEntity.ok(adminService.listUsers());
+    }
+
+    @GetMapping("/specialties")
+    public ResponseEntity<List<AdminSpecialtyResponse>> listSpecialties() {
+        return ResponseEntity.ok(adminService.listSpecialties());
+    }
+
+    @PostMapping("/specialties")
+    public ResponseEntity<AdminSpecialtyResponse> createSpecialty(
+            @Valid @RequestBody AdminCreateSpecialtyRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(adminService.createSpecialty(request));
+    }
+
+    @PatchMapping("/specialties/{specialtyId}/status")
+    public ResponseEntity<AdminSpecialtyResponse> updateSpecialtyStatus(
+            @PathVariable Long specialtyId,
+            @Valid @RequestBody AdminUpdateSpecialtyStatusRequest request
+    ) {
+        return ResponseEntity.ok(adminService.updateSpecialtyStatus(specialtyId, request));
     }
 
     @PatchMapping("/users/{userId}/status")

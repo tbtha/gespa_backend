@@ -2,10 +2,12 @@ package com.tbtha.gespa_backend.config;
 
 import com.tbtha.gespa_backend.entities.Paciente;
 import com.tbtha.gespa_backend.entities.Profesional;
+import com.tbtha.gespa_backend.entities.Specialty;
 import com.tbtha.gespa_backend.entities.Usuario;
 import com.tbtha.gespa_backend.entities.enums.UserRole;
 import com.tbtha.gespa_backend.repositories.PacienteRepository;
 import com.tbtha.gespa_backend.repositories.ProfesionalRepository;
+import com.tbtha.gespa_backend.repositories.SpecialtyRepository;
 import com.tbtha.gespa_backend.repositories.UsuarioRepository;
 import com.tbtha.gespa_backend.utils.RutUtils;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,6 +22,7 @@ public class DefaultUsersInitializer implements CommandLineRunner {
     private final UsuarioRepository usuarioRepository;
     private final ProfesionalRepository profesionalRepository;
     private final PacienteRepository pacienteRepository;
+    private final SpecialtyRepository specialtyRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Value("${app.seed.defaults.enabled:true}")
@@ -61,10 +64,12 @@ public class DefaultUsersInitializer implements CommandLineRunner {
     public DefaultUsersInitializer(UsuarioRepository usuarioRepository,
                                    ProfesionalRepository profesionalRepository,
                                    PacienteRepository pacienteRepository,
+                                   SpecialtyRepository specialtyRepository,
                                    PasswordEncoder passwordEncoder) {
         this.usuarioRepository = usuarioRepository;
         this.profesionalRepository = profesionalRepository;
         this.pacienteRepository = pacienteRepository;
+        this.specialtyRepository = specialtyRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -149,6 +154,14 @@ public class DefaultUsersInitializer implements CommandLineRunner {
     }
 
     private Profesional ensureProfessional(Usuario professionalUser) {
+        Specialty selectedSpecialty = specialtyRepository.findByNameIgnoreCase(professionalSpecialty)
+                .orElseGet(() -> {
+                    Specialty specialty = new Specialty();
+                    specialty.setName(professionalSpecialty);
+                    specialty.setActive(true);
+                    return specialtyRepository.save(specialty);
+                });
+
         return profesionalRepository.findById(professionalUser.getId())
                 .map(existing -> {
                     boolean changed = false;
@@ -158,8 +171,15 @@ public class DefaultUsersInitializer implements CommandLineRunner {
                         changed = true;
                     }
 
+                    if (existing.getSpecialtyRef() == null
+                            || existing.getSpecialtyRef().getId() == null
+                            || !existing.getSpecialtyRef().getId().equals(selectedSpecialty.getId())) {
+                        existing.setSpecialtyRef(selectedSpecialty);
+                        changed = true;
+                    }
+
                     if (existing.getSpecialty() == null || existing.getSpecialty().isBlank()) {
-                        existing.setSpecialty(professionalSpecialty);
+                        existing.setSpecialty(selectedSpecialty.getName());
                         changed = true;
                     }
 
@@ -169,7 +189,8 @@ public class DefaultUsersInitializer implements CommandLineRunner {
                     Profesional profesional = new Profesional();
                     profesional.setUsuario(professionalUser);
                     profesional.setRut(resolveUniqueProfessionalRut(professionalUser.getId()));
-                    profesional.setSpecialty(professionalSpecialty);
+                    profesional.setSpecialtyRef(selectedSpecialty);
+                    profesional.setSpecialty(selectedSpecialty.getName());
                     return profesionalRepository.save(profesional);
                 });
     }
