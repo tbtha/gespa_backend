@@ -5,7 +5,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
-public record CreateHorarioRequest(
+public record UpdateHorarioRequest(
     @NotNull @Min(1) @Max(7) Integer diaSemana,
     @NotBlank String horaInicio, // "HH:mm"
     @NotBlank String horaFin,    // "HH:mm"

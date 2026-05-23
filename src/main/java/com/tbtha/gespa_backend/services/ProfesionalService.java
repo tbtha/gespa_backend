@@ -84,10 +84,7 @@ public class ProfesionalService {
 
     @Transactional(readOnly = true)
     public List<ProfesionalResponse> findAll() {
-        Usuario actor = accessControlService.currentUsuario();
-        if (actor.getRole() != UserRole.ADMIN) {
-            throw new AccessDeniedException("Solo ADMIN puede listar profesionales");
-        }
+        // Acceso público: no requiere autenticación
         return profesionalRepository.findAll().stream().map(this::toResponse).toList();
     }
 

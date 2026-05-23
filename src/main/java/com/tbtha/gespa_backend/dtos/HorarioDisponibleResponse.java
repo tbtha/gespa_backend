@@ -8,5 +8,6 @@ public record HorarioDisponibleResponse(
     String horaFin,
     int duracionMinutos,
     String modalidad,
+    String direccionAtencion,
     boolean active
 ) {}

@@ -64,6 +64,9 @@ public class HorarioService {
         horario.setDuracionMinutos(request.duracionMinutos() != null ? request.duracionMinutos() : 30);
         horario.setModalidad(ModalidadAtencion.valueOf(request.modalidad().toUpperCase()));
 
+        // Nuevo: setear dirección/lugar de atención presencial
+        horario.setDireccionAtencion(request.direccionAtencion());
+
         return toResponse(horarioRepository.save(horario));
     }
 
@@ -157,14 +160,15 @@ public class HorarioService {
 
     private HorarioDisponibleResponse toResponse(HorarioDisponible h) {
         return new HorarioDisponibleResponse(
-                h.getId(),
-                h.getProfesional().getId(),
-                h.getDiaSemana(),
-                h.getHoraInicio().format(DateTimeFormatter.ofPattern("HH:mm")),
-                h.getHoraFin().format(DateTimeFormatter.ofPattern("HH:mm")),
-                h.getDuracionMinutos(),
-                h.getModalidad().name(),
-                h.isActive()
+            h.getId(),
+            h.getProfesional().getId(),
+            h.getDiaSemana(),
+            h.getHoraInicio().format(DateTimeFormatter.ofPattern("HH:mm")),
+            h.getHoraFin().format(DateTimeFormatter.ofPattern("HH:mm")),
+            h.getDuracionMinutos(),
+            h.getModalidad().name(),
+            h.getDireccionAtencion(),
+            h.isActive()
         );
     }
 }

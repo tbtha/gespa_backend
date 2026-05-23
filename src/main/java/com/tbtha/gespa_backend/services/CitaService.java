@@ -13,11 +13,15 @@ import com.tbtha.gespa_backend.exceptions.ResourceNotFoundException;
 import com.tbtha.gespa_backend.repositories.CitaRepository;
 import com.tbtha.gespa_backend.repositories.PacienteRepository;
 import com.tbtha.gespa_backend.repositories.ProfesionalRepository;
+import com.tbtha.gespa_backend.repositories.HorarioDisponibleRepository;
+import com.tbtha.gespa_backend.entities.HorarioDisponible;
 import com.tbtha.gespa_backend.security.AccessControlService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.time.DayOfWeek;
+import java.time.LocalTime;
 import java.util.List;
 
 @Service
@@ -26,21 +30,24 @@ public class CitaService {
     private final CitaRepository citaRepository;
     private final PacienteRepository pacienteRepository;
     private final ProfesionalRepository profesionalRepository;
+    private final HorarioDisponibleRepository horarioDisponibleRepository;
     private final AccessControlService accessControlService;
 
     public CitaService(CitaRepository citaRepository,
                        PacienteRepository pacienteRepository,
                        ProfesionalRepository profesionalRepository,
-                       AccessControlService accessControlService) {
+                       AccessControlService accessControlService,
+                       HorarioDisponibleRepository horarioDisponibleRepository) {
         this.citaRepository = citaRepository;
         this.pacienteRepository = pacienteRepository;
         this.profesionalRepository = profesionalRepository;
         this.accessControlService = accessControlService;
+        this.horarioDisponibleRepository = horarioDisponibleRepository;
     }
 
     @Transactional
     public CitaResponse create(CreateCitaRequest request) {
-        accessControlService.assertCanAccessProfesional(request.profesionalId());
+        // Permitir que cualquier paciente agende con cualquier profesional
 
         if (!request.endsAt().isAfter(request.startsAt())) {
             throw new ConflictException("La cita no puede finalizar antes o al mismo tiempo que inicia");
@@ -61,14 +68,29 @@ public class CitaService {
         cita.setTipoAtencion(request.tipoAtencion());
         cita.setModalidad(request.modalidad() == null ? ModalidadAtencion.PRESENCIAL : request.modalidad());
         cita.setReason(request.reason());
-        cita.setLocation(request.location());
+        // Buscar el horario de atención correspondiente para obtener la dirección/lugar
+        String lugar = request.location();
+        try {
+            int diaSemana = request.startsAt().getDayOfWeek().getValue();
+            LocalTime horaInicio = request.startsAt().toLocalTime();
+            List<HorarioDisponible> horarios = horarioDisponibleRepository.findByProfesionalIdAndDiaSemanaAndActiveTrue(request.profesionalId(), diaSemana);
+            HorarioDisponible horarioMatch = horarios.stream()
+                .filter(h -> !horaInicio.isBefore(h.getHoraInicio()) && horaInicio.isBefore(h.getHoraFin()))
+                .findFirst().orElse(null);
+            if (horarioMatch != null && horarioMatch.getDireccionAtencion() != null && !horarioMatch.getDireccionAtencion().isBlank()) {
+                lugar = horarioMatch.getDireccionAtencion();
+            }
+        } catch (Exception e) {
+            // Si falla, dejar el valor original
+        }
+        cita.setLocation(lugar);
 
         return toResponse(citaRepository.save(cita));
     }
 
     @Transactional(readOnly = true)
     public List<CitaResponse> findByProfesional(Long profesionalId) {
-        accessControlService.assertCanAccessProfesional(profesionalId);
+        // Permitir acceso universal a la agenda de profesionales
         return citaRepository.findByProfesionalIdOrderByStartsAtAsc(profesionalId)
                 .stream()
                 .map(this::toResponse)
@@ -88,7 +110,7 @@ public class CitaService {
     public List<CitaResponse> findAgendaByProfesional(Long profesionalId,
                                                       OffsetDateTime desde,
                                                       OffsetDateTime hasta) {
-        accessControlService.assertCanAccessProfesional(profesionalId);
+        // Permitir acceso universal a la agenda de profesionales
 
         if (desde == null || hasta == null) {
             return findByProfesional(profesionalId);

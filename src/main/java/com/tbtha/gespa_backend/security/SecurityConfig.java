@@ -64,10 +64,12 @@ public class SecurityConfig {
                                 "/api/auth/check-email",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
-                                "/v3/api-docs/**")
+                                "/v3/api-docs/**",
+                                "/api/profesionales" // <-- acceso público a GET /api/profesionales
+                        )
                         .permitAll()
-                                                .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                                                .requestMatchers("/api/dashboard/**").hasAnyRole("ADMIN", "PROFESSIONAL")
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/dashboard/**").hasAnyRole("ADMIN", "PROFESSIONAL")
                         .anyRequest()
                         .authenticated())
                                 .addFilterBefore(contentTypeNormalizationFilter, UsernamePasswordAuthenticationFilter.class)

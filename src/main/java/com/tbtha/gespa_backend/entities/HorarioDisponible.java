@@ -48,6 +48,10 @@ public class HorarioDisponible {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private ModalidadAtencion modalidad = ModalidadAtencion.PRESENCIAL;
+    
+        // Nueva: dirección/lugar de atención presencial
+        @Column(name = "direccion_atencion", length = 255)
+        private String direccionAtencion;
 
     @Column(nullable = false)
     private boolean active = true;
@@ -81,6 +85,9 @@ public class HorarioDisponible {
 
     public ModalidadAtencion getModalidad() { return modalidad; }
     public void setModalidad(ModalidadAtencion modalidad) { this.modalidad = modalidad; }
+    
+        public String getDireccionAtencion() { return direccionAtencion; }
+        public void setDireccionAtencion(String direccionAtencion) { this.direccionAtencion = direccionAtencion; }
 
     public boolean isActive() { return active; }
     public void setActive(boolean active) { this.active = active; }
