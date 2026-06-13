@@ -17,13 +17,16 @@ public class SmtpEmailService implements EmailService {
 
     private final JavaMailSender mailSender;
     private final String from;
+    private final String fromName;
     private final boolean enabled;
 
     public SmtpEmailService(JavaMailSender mailSender,
                             @Value("${app.mail.from:no-reply@gespa.cl}") String from,
+                            @Value("${app.mail.from-name:GESPA}") String fromName,
                             @Value("${app.mail.enabled:true}") boolean enabled) {
         this.mailSender = mailSender;
         this.from = from;
+        this.fromName = fromName == null || fromName.isBlank() ? "GESPA" : fromName.trim();
         this.enabled = enabled;
     }
 
@@ -37,7 +40,7 @@ public class SmtpEmailService implements EmailService {
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, StandardCharsets.UTF_8.name());
-            helper.setFrom(from);
+            helper.setFrom(from, fromName);
             helper.setTo(to);
             helper.setSubject(subject);
             helper.setText(htmlBody, true);

@@ -28,6 +28,7 @@ import com.tbtha.gespa_backend.security.AccessControlService;
 import com.tbtha.gespa_backend.security.JwtService;
 import com.tbtha.gespa_backend.services.AuditService;
 import com.tbtha.gespa_backend.services.email.EmailService;
+import com.tbtha.gespa_backend.services.email.UserAccountEmailService;
 import com.tbtha.gespa_backend.utils.RutUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -61,6 +62,7 @@ public class AuthService {
     private final AccessControlService accessControlService;
     private final AuditService auditService;
     private final EmailService emailService;
+    private final UserAccountEmailService userAccountEmailService;
     private final PasswordEncoder passwordEncoder;
     private final long refreshExpirationSeconds;
     private final long passwordResetExpirationSeconds;
@@ -82,6 +84,7 @@ public class AuthService {
                        AccessControlService accessControlService,
                        AuditService auditService,
                        EmailService emailService,
+                       UserAccountEmailService userAccountEmailService,
                        PasswordEncoder passwordEncoder,
                        @Value("${app.jwt.refresh-expiration-seconds:1209600}") long refreshExpirationSeconds,
                        @Value("${app.auth.password-reset.expiration-seconds:3600}") long passwordResetExpirationSeconds,
@@ -101,6 +104,7 @@ public class AuthService {
         this.accessControlService = accessControlService;
         this.auditService = auditService;
         this.emailService = emailService;
+        this.userAccountEmailService = userAccountEmailService;
         this.passwordEncoder = passwordEncoder;
         this.refreshExpirationSeconds = refreshExpirationSeconds;
         this.passwordResetExpirationSeconds = passwordResetExpirationSeconds;
@@ -383,6 +387,7 @@ public class AuthService {
             user.setActive(true);
             user.setPasswordHash(passwordEncoder.encode(request.password()));
             usuarioRepository.save(user);
+            userAccountEmailService.sendUserCreatedEmail(user);
         }
 
         Paciente paciente = new Paciente();

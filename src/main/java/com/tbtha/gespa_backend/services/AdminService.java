@@ -25,6 +25,7 @@ import com.tbtha.gespa_backend.repositories.ProfesionalRepository;
 import com.tbtha.gespa_backend.repositories.RefreshTokenRepository;
 import com.tbtha.gespa_backend.repositories.SpecialtyRepository;
 import com.tbtha.gespa_backend.repositories.UsuarioRepository;
+import com.tbtha.gespa_backend.services.email.UserAccountEmailService;
 import com.tbtha.gespa_backend.utils.RutUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Sort;
@@ -49,6 +50,7 @@ public class AdminService {
     private final ProfessionalInvitationTokenRepository invitationTokenRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
+    private final UserAccountEmailService userAccountEmailService;
     private final long invitationExpirationSeconds;
 
     public AdminService(UsuarioRepository usuarioRepository,
@@ -58,6 +60,7 @@ public class AdminService {
                         ProfessionalInvitationTokenRepository invitationTokenRepository,
                         RefreshTokenRepository refreshTokenRepository,
                         PasswordEncoder passwordEncoder,
+                        UserAccountEmailService userAccountEmailService,
                         @Value("${app.auth.invitation.expiration-seconds:604800}") long invitationExpirationSeconds) {
         this.usuarioRepository = usuarioRepository;
         this.profesionalRepository = profesionalRepository;
@@ -66,6 +69,7 @@ public class AdminService {
         this.invitationTokenRepository = invitationTokenRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordEncoder = passwordEncoder;
+        this.userAccountEmailService = userAccountEmailService;
         this.invitationExpirationSeconds = invitationExpirationSeconds;
     }
 
@@ -136,6 +140,7 @@ public class AdminService {
             token.setUsed(false);
             invitationTokenRepository.save(token);
             expiresAt = token.getExpiresAt();
+            userAccountEmailService.sendActivationInvitationEmail(user, plainToken, expiresAt);
         }
 
         return new ProfessionalInvitationResponse(
@@ -207,6 +212,7 @@ public class AdminService {
             token.setUsed(false);
             invitationTokenRepository.save(token);
             expiresAt = token.getExpiresAt();
+            userAccountEmailService.sendActivationInvitationEmail(user, plainToken, expiresAt);
         }
 
         return new PatientInvitationResponse(

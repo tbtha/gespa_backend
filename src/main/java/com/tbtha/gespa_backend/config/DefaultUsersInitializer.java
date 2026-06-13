@@ -40,10 +40,10 @@ public class DefaultUsersInitializer implements CommandLineRunner {
     @Value("${app.seed.defaults.shared-password:Demo12345!}")
     private String sharedPassword;
 
-    @Value("${app.seed.defaults.professional-email:demo.professional@gespa.local}")
+    @Value("${app.seed.defaults.professional-email:demo.profesional@gespa.cl}")
     private String professionalEmail;
 
-    @Value("${app.seed.defaults.patient-email:demo.patient@gespa.local}")
+    @Value("${app.seed.defaults.patient-email:demo.paciente@gespa.cl}")
     private String patientEmail;
 
     @Value("${app.seed.defaults.professional-display-name:Profesional Demo}")
@@ -55,7 +55,7 @@ public class DefaultUsersInitializer implements CommandLineRunner {
     @Value("${app.seed.defaults.professional-specialty:Medicina General}")
     private String professionalSpecialty;
 
-    @Value("${app.seed.defaults.professional-rut:12345678-5}")
+    @Value("${app.seed.defaults.professional-rut:22222222-2}")
     private String professionalRut;
 
     @Value("${app.seed.defaults.patient-rut:11111111-1}")

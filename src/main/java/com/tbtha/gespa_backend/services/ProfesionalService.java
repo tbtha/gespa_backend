@@ -5,22 +5,31 @@ import com.tbtha.gespa_backend.dtos.ProfesionalResponse;
 import com.tbtha.gespa_backend.dtos.SpecialtyResponse;
 import com.tbtha.gespa_backend.dtos.UpdateProfesionalRequest;
 import com.tbtha.gespa_backend.entities.Profesional;
+import com.tbtha.gespa_backend.entities.ProfessionalInvitationToken;
 import com.tbtha.gespa_backend.entities.Specialty;
 import com.tbtha.gespa_backend.entities.Usuario;
 import com.tbtha.gespa_backend.entities.enums.UserRole;
 import com.tbtha.gespa_backend.exceptions.ConflictException;
 import com.tbtha.gespa_backend.exceptions.ResourceNotFoundException;
 import com.tbtha.gespa_backend.repositories.ProfesionalRepository;
+import com.tbtha.gespa_backend.repositories.ProfessionalInvitationTokenRepository;
 import com.tbtha.gespa_backend.repositories.SpecialtyRepository;
 import com.tbtha.gespa_backend.repositories.UsuarioRepository;
 import com.tbtha.gespa_backend.security.AccessControlService;
+import com.tbtha.gespa_backend.services.email.UserAccountEmailService;
 import com.tbtha.gespa_backend.utils.RutUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.OffsetDateTime;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class ProfesionalService {
@@ -28,19 +37,28 @@ public class ProfesionalService {
     private final ProfesionalRepository profesionalRepository;
     private final SpecialtyRepository specialtyRepository;
     private final UsuarioRepository usuarioRepository;
+    private final ProfessionalInvitationTokenRepository invitationTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final AccessControlService accessControlService;
+    private final UserAccountEmailService userAccountEmailService;
+    private final long invitationExpirationSeconds;
 
     public ProfesionalService(ProfesionalRepository profesionalRepository,
                               SpecialtyRepository specialtyRepository,
                               UsuarioRepository usuarioRepository,
+                              ProfessionalInvitationTokenRepository invitationTokenRepository,
                               PasswordEncoder passwordEncoder,
-                              AccessControlService accessControlService) {
+                              AccessControlService accessControlService,
+                              UserAccountEmailService userAccountEmailService,
+                              @Value("${app.auth.invitation.expiration-seconds:604800}") long invitationExpirationSeconds) {
         this.profesionalRepository = profesionalRepository;
         this.specialtyRepository = specialtyRepository;
         this.usuarioRepository = usuarioRepository;
+        this.invitationTokenRepository = invitationTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.accessControlService = accessControlService;
+        this.userAccountEmailService = userAccountEmailService;
+        this.invitationExpirationSeconds = invitationExpirationSeconds;
     }
 
     @Transactional
@@ -62,11 +80,23 @@ public class ProfesionalService {
 
         Usuario usuario = new Usuario();
         usuario.setEmail(request.email().trim().toLowerCase());
-        usuario.setPasswordHash(passwordEncoder.encode(request.password()));
+        usuario.setPasswordHash(passwordEncoder.encode(generateTemporaryPassword()));
         usuario.setDisplayName(request.displayName());
         usuario.setRole(UserRole.PROFESSIONAL);
-        usuario.setActive(true);
+        usuario.setActive(false);
         usuarioRepository.save(usuario);
+
+        String plainToken = UUID.randomUUID() + "." + UUID.randomUUID();
+        invitationTokenRepository.deleteByUser_Id(usuario.getId());
+
+        ProfessionalInvitationToken token = new ProfessionalInvitationToken();
+        token.setUser(usuario);
+        token.setTokenHash(hashToken(plainToken));
+        token.setExpiresAt(OffsetDateTime.now().plusSeconds(invitationExpirationSeconds));
+        token.setUsed(false);
+        invitationTokenRepository.save(token);
+
+        userAccountEmailService.sendActivationInvitationEmail(usuario, plainToken, token.getExpiresAt());
 
         Profesional profesional = new Profesional();
         Specialty selectedSpecialty = resolveSpecialty(request.specialty());
@@ -151,5 +181,20 @@ public class ProfesionalService {
         return specialtyRepository.findByNameIgnoreCase(specialtyName.trim())
                 .filter(Specialty::isActive)
                 .orElseThrow(() -> new ConflictException("Especialidad inválida"));
+    }
+
+    private String generateTemporaryPassword() {
+        String seed = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        return seed + "A1!";
+    }
+
+    private String hashToken(String plainToken) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(plainToken.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (Exception e) {
+            throw new IllegalStateException("No se pudo procesar token", e);
+        }
     }
 }

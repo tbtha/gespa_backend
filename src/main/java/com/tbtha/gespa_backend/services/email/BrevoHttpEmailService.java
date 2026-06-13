@@ -22,6 +22,7 @@ public class BrevoHttpEmailService {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final String from;
+    private final String fromName;
     private final String apiUrl;
     private final String apiKey;
     private final boolean enabled;
@@ -29,6 +30,7 @@ public class BrevoHttpEmailService {
 
     public BrevoHttpEmailService(ObjectMapper objectMapper,
                                  @Value("${app.mail.from:no-reply@gespa.cl}") String from,
+                                 @Value("${app.mail.from-name:GESPA}") String fromName,
                                  @Value("${app.mail.http.api-url:https://api.brevo.com/v3/smtp/email}") String apiUrl,
                                  @Value("${app.mail.http.api-key:}") String apiKey,
                                  @Value("${app.mail.http.enabled:false}") boolean enabled,
@@ -36,6 +38,7 @@ public class BrevoHttpEmailService {
                                  @Value("${app.mail.http.request-timeout-ms:10000}") long requestTimeoutMs) {
         this.objectMapper = objectMapper;
         this.from = from;
+        this.fromName = fromName == null || fromName.isBlank() ? "GESPA" : fromName.trim();
         this.apiUrl = apiUrl;
         this.apiKey = apiKey == null ? "" : apiKey.trim();
         this.enabled = enabled;
@@ -58,7 +61,10 @@ public class BrevoHttpEmailService {
 
         try {
             Map<String, Object> payload = Map.of(
-                    "sender", Map.of("email", from),
+                    "sender", Map.of(
+                            "email", from,
+                            "name", fromName
+                    ),
                     "to", List.of(Map.of("email", to)),
                     "subject", subject,
                     "htmlContent", htmlBody

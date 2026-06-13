@@ -18,6 +18,7 @@ import com.tbtha.gespa_backend.repositories.PacienteRepository;
 import com.tbtha.gespa_backend.repositories.ProfessionalInvitationTokenRepository;
 import com.tbtha.gespa_backend.repositories.UsuarioRepository;
 import com.tbtha.gespa_backend.security.AccessControlService;
+import com.tbtha.gespa_backend.services.email.UserAccountEmailService;
 import com.tbtha.gespa_backend.utils.RutUtils;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
@@ -46,6 +47,7 @@ public class PacienteService {
     private final ProfessionalInvitationTokenRepository invitationTokenRepository;
     private final AccessControlService accessControlService;
     private final PasswordEncoder passwordEncoder;
+    private final UserAccountEmailService userAccountEmailService;
     private final long invitationExpirationSeconds;
 
     public PacienteService(PacienteRepository pacienteRepository,
@@ -53,12 +55,14 @@ public class PacienteService {
                            ProfessionalInvitationTokenRepository invitationTokenRepository,
                            AccessControlService accessControlService,
                            PasswordEncoder passwordEncoder,
+                           UserAccountEmailService userAccountEmailService,
                            @Value("${app.auth.invitation.expiration-seconds:604800}") long invitationExpirationSeconds) {
         this.pacienteRepository = pacienteRepository;
         this.usuarioRepository = usuarioRepository;
         this.invitationTokenRepository = invitationTokenRepository;
         this.accessControlService = accessControlService;
         this.passwordEncoder = passwordEncoder;
+        this.userAccountEmailService = userAccountEmailService;
         this.invitationExpirationSeconds = invitationExpirationSeconds;
     }
 
@@ -85,6 +89,8 @@ public class PacienteService {
             throw new ConflictException("Ya existe un paciente con el RUT indicado");
         }
 
+        boolean isAdminActor = actor.getRole() == UserRole.ADMIN;
+        boolean createdNewUser = false;
         Usuario usuario;
         if (existingUser != null) {
             usuario = existingUser;
@@ -96,13 +102,22 @@ public class PacienteService {
             }
             usuarioRepository.save(usuario);
         } else {
+            createdNewUser = true;
             usuario = new Usuario();
             usuario.setEmail(normalizedEmail);
-            usuario.setPasswordHash(passwordEncoder.encode(request.password()));
             usuario.setDisplayName(request.displayName());
             usuario.setRole(UserRole.PATIENT);
-            usuario.setActive(true);
+            if (isAdminActor) {
+                usuario.setPasswordHash(passwordEncoder.encode(generateTemporaryPassword()));
+                usuario.setActive(false);
+            } else {
+                usuario.setPasswordHash(passwordEncoder.encode(request.password()));
+                usuario.setActive(true);
+            }
             usuarioRepository.save(usuario);
+            if (!isAdminActor) {
+                userAccountEmailService.sendUserCreatedEmail(usuario);
+            }
         }
 
         Paciente paciente = new Paciente();
@@ -118,6 +133,21 @@ public class PacienteService {
         paciente.setAddress(request.address());
         paciente.setEmergencyContactName(request.emergencyContactName());
         paciente.setEmergencyContactPhone(request.emergencyContactPhone());
+
+        if (isAdminActor && createdNewUser) {
+            String plainToken = UUID.randomUUID() + "." + UUID.randomUUID();
+
+            invitationTokenRepository.deleteByUser_Id(usuario.getId());
+
+            ProfessionalInvitationToken token = new ProfessionalInvitationToken();
+            token.setUser(usuario);
+            token.setTokenHash(hashToken(plainToken));
+            token.setExpiresAt(OffsetDateTime.now().plusSeconds(invitationExpirationSeconds));
+            token.setUsed(false);
+            invitationTokenRepository.save(token);
+
+            userAccountEmailService.sendActivationInvitationEmail(usuario, plainToken, token.getExpiresAt());
+        }
 
         return toResponse(pacienteRepository.save(paciente));
     }
@@ -277,6 +307,7 @@ public class PacienteService {
             token.setUsed(false);
             invitationTokenRepository.save(token);
             expiresAt = token.getExpiresAt();
+            userAccountEmailService.sendActivationInvitationEmail(user, plainToken, expiresAt);
         }
 
         return new PatientInvitationResponse(
