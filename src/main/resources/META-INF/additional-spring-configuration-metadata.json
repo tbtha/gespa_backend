@@ -134,6 +134,36 @@
       "name": "app.mail.from",
       "type": "java.lang.String",
       "description": "Dirección remitente utilizada para correos transaccionales."
+    },
+    {
+      "name": "app.mail.transport",
+      "type": "java.lang.String",
+      "description": "Transporte de correo a usar: http, smtp o auto."
+    },
+    {
+      "name": "app.mail.http.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Habilita o deshabilita el envío de correos por API HTTP."
+    },
+    {
+      "name": "app.mail.http.api-url",
+      "type": "java.lang.String",
+      "description": "URL del endpoint HTTP del proveedor de correo (por defecto Brevo)."
+    },
+    {
+      "name": "app.mail.http.api-key",
+      "type": "java.lang.String",
+      "description": "API key del proveedor HTTP de correo."
+    },
+    {
+      "name": "app.mail.http.connect-timeout-ms",
+      "type": "java.lang.Long",
+      "description": "Timeout de conexión HTTP (ms) para envío de correo."
+    },
+    {
+      "name": "app.mail.http.request-timeout-ms",
+      "type": "java.lang.Long",
+      "description": "Timeout total de request HTTP (ms) para envío de correo."
     }
   ]
 }
