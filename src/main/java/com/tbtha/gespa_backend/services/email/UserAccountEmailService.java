@@ -15,13 +15,16 @@ public class UserAccountEmailService {
 
     private final EmailService emailService;
     private final String invitationFrontendUrl;
+    private final String loginFrontendBaseUrl;
 
     public UserAccountEmailService(
             EmailService emailService,
-            @Value("${app.auth.invitation.frontend-url:http://localhost:5173/aceptar-invitacion}") String invitationFrontendUrl
+            @Value("${app.auth.invitation.frontend-url:http://localhost:5173/aceptar-invitacion}") String invitationFrontendUrl,
+            @Value("${app.auth.login.frontend-url:http://localhost:5173}") String loginFrontendBaseUrl
     ) {
         this.emailService = emailService;
         this.invitationFrontendUrl = invitationFrontendUrl;
+        this.loginFrontendBaseUrl = loginFrontendBaseUrl.replaceAll("/+$", "");
     }
 
     public void sendUserCreatedEmail(Usuario user) {
@@ -35,6 +38,10 @@ public class UserAccountEmailService {
     }
 
     public void sendActivationInvitationEmail(Usuario user, String plainToken, OffsetDateTime expiresAt) {
+        sendActivationInvitationEmail(user, plainToken, expiresAt, user != null ? user.getRole() : null);
+    }
+
+    public void sendActivationInvitationEmail(Usuario user, String plainToken, OffsetDateTime expiresAt, UserRole invitationRole) {
         if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
             return;
         }
@@ -43,8 +50,9 @@ public class UserAccountEmailService {
         }
 
         String subject = "Activa tu cuenta en GESPA";
-        String activationLink = buildInvitationActivationLink(plainToken);
-        String htmlBody = buildActivationInvitationHtml(user, plainToken, activationLink, expiresAt);
+        UserRole roleForInvitation = invitationRole != null ? invitationRole : user.getRole();
+        String activationLink = buildInvitationActivationLink(plainToken, roleForInvitation);
+        String htmlBody = buildActivationInvitationHtml(user, plainToken, activationLink, expiresAt, roleForInvitation);
         emailService.sendHtml(user.getEmail(), subject, htmlBody);
     }
 
@@ -60,6 +68,9 @@ public class UserAccountEmailService {
         String activationMessage = Boolean.TRUE.equals(user.getActive())
                 ? "Tu cuenta ya está activa. Puedes iniciar sesión con tu correo y contraseña."
                 : "Tu cuenta está creada pero pendiente de activación. Sigue las instrucciones entregadas para completar tu registro.";
+
+        String loginUrl = escapeHtml(loginFrontendBaseUrl + buildLoginPath(user.getRole()));
+        String loginButtonLabel = escapeHtml(buildLoginButtonLabel(user.getRole()));
 
         return """
                 <html>
@@ -80,8 +91,8 @@ public class UserAccountEmailService {
                                     <p>%s</p>
 
                                     <p style=\"margin: 24px 0;\">
-                                        <a href=\"http://localhost:5173/login\" style=\"background: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 18px; border-radius: 8px; display: inline-block;\">
-                                            Ir a iniciar sesión
+                                        <a href=\"%s\" style=\"background: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 18px; border-radius: 8px; display: inline-block;\">
+                                            %s
                                         </a>
                                     </p>
 
@@ -92,7 +103,24 @@ public class UserAccountEmailService {
                         </table>
                     </body>
                 </html>
-                """.formatted(safeDisplayName, safeEmail, safeRole, escapeHtml(activationMessage));
+                """.formatted(safeDisplayName, safeEmail, safeRole, escapeHtml(activationMessage), loginUrl, loginButtonLabel);
+    }
+
+    private String buildLoginPath(UserRole role) {
+        if (role == null) return "/login-profesional";
+        return switch (role) {
+            case PATIENT -> "/login-paciente";
+            case PROFESSIONAL, ADMIN -> "/login-profesional";
+        };
+    }
+
+    private String buildLoginButtonLabel(UserRole role) {
+        if (role == null) return "Ir a iniciar sesión";
+        return switch (role) {
+            case PATIENT -> "Iniciar sesión como Paciente";
+            case PROFESSIONAL -> "Iniciar sesión como Profesional";
+            case ADMIN -> "Ir a iniciar sesión";
+        };
     }
 
     private String toRoleLabel(UserRole role) {
@@ -107,16 +135,19 @@ public class UserAccountEmailService {
         };
     }
 
-    private String buildInvitationActivationLink(String plainToken) {
+    private String buildInvitationActivationLink(String plainToken, UserRole invitationRole) {
         String encodedToken = URLEncoder.encode(plainToken, StandardCharsets.UTF_8);
+        String encodedUserType = URLEncoder.encode(toInvitationUserType(invitationRole), StandardCharsets.UTF_8);
         String frontendUrl = normalizeInvitationFrontendUrl(invitationFrontendUrl);
 
         if (frontendUrl.contains("{token}")) {
-            return frontendUrl.replace("{token}", encodedToken);
+            String linkWithToken = frontendUrl.replace("{token}", encodedToken);
+            String separator = linkWithToken.contains("?") ? "&" : "?";
+            return linkWithToken + separator + "userType=" + encodedUserType;
         }
 
         String separator = frontendUrl.contains("?") ? "&" : "?";
-        return frontendUrl + separator + "token=" + encodedToken;
+        return frontendUrl + separator + "token=" + encodedToken + "&userType=" + encodedUserType;
     }
 
     private String normalizeInvitationFrontendUrl(String configuredUrl) {
@@ -136,7 +167,7 @@ public class UserAccountEmailService {
         return value + "/aceptar-invitacion";
     }
 
-    private String buildActivationInvitationHtml(Usuario user, String plainToken, String activationLink, OffsetDateTime expiresAt) {
+    private String buildActivationInvitationHtml(Usuario user, String plainToken, String activationLink, OffsetDateTime expiresAt, UserRole invitationRole) {
         String displayName = user.getDisplayName() == null || user.getDisplayName().isBlank()
                 ? "usuario"
                 : user.getDisplayName();
@@ -145,7 +176,7 @@ public class UserAccountEmailService {
         String safeDisplayName = escapeHtml(displayName);
         String safeToken = escapeHtml(plainToken);
         String safeActivationLink = escapeHtml(activationLink);
-        String safeRole = escapeHtml(toRoleLabel(user.getRole()));
+        String safeRole = escapeHtml(toRoleLabel(invitationRole));
 
         return """
                 <html>
@@ -186,6 +217,13 @@ public class UserAccountEmailService {
                     </body>
                 </html>
                 """.formatted(safeDisplayName, safeRole, safeToken, safeActivationLink, expiresInMinutes, safeActivationLink, safeActivationLink);
+    }
+
+    private String toInvitationUserType(UserRole role) {
+        if (role == UserRole.PATIENT) {
+            return "patient";
+        }
+        return "professional";
     }
 
     private String escapeHtml(String value) {

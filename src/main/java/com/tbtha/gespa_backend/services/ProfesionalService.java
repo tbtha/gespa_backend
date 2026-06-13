@@ -96,7 +96,7 @@ public class ProfesionalService {
         token.setUsed(false);
         invitationTokenRepository.save(token);
 
-        userAccountEmailService.sendActivationInvitationEmail(usuario, plainToken, token.getExpiresAt());
+        userAccountEmailService.sendActivationInvitationEmail(usuario, plainToken, token.getExpiresAt(), UserRole.PROFESSIONAL);
 
         Profesional profesional = new Profesional();
         Specialty selectedSpecialty = resolveSpecialty(request.specialty());

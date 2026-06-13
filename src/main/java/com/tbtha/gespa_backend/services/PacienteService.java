@@ -89,7 +89,6 @@ public class PacienteService {
             throw new ConflictException("Ya existe un paciente con el RUT indicado");
         }
 
-        boolean isAdminActor = actor.getRole() == UserRole.ADMIN;
         boolean createdNewUser = false;
         Usuario usuario;
         if (existingUser != null) {
@@ -107,17 +106,9 @@ public class PacienteService {
             usuario.setEmail(normalizedEmail);
             usuario.setDisplayName(request.displayName());
             usuario.setRole(UserRole.PATIENT);
-            if (isAdminActor) {
-                usuario.setPasswordHash(passwordEncoder.encode(generateTemporaryPassword()));
-                usuario.setActive(false);
-            } else {
-                usuario.setPasswordHash(passwordEncoder.encode(request.password()));
-                usuario.setActive(true);
-            }
+            usuario.setPasswordHash(passwordEncoder.encode(generateTemporaryPassword()));
+            usuario.setActive(false);
             usuarioRepository.save(usuario);
-            if (!isAdminActor) {
-                userAccountEmailService.sendUserCreatedEmail(usuario);
-            }
         }
 
         Paciente paciente = new Paciente();
@@ -134,7 +125,7 @@ public class PacienteService {
         paciente.setEmergencyContactName(request.emergencyContactName());
         paciente.setEmergencyContactPhone(request.emergencyContactPhone());
 
-        if (isAdminActor && createdNewUser) {
+        if (createdNewUser) {
             String plainToken = UUID.randomUUID() + "." + UUID.randomUUID();
 
             invitationTokenRepository.deleteByUser_Id(usuario.getId());
@@ -146,7 +137,12 @@ public class PacienteService {
             token.setUsed(false);
             invitationTokenRepository.save(token);
 
-            userAccountEmailService.sendActivationInvitationEmail(usuario, plainToken, token.getExpiresAt());
+                userAccountEmailService.sendActivationInvitationEmail(
+                    usuario,
+                    plainToken,
+                    token.getExpiresAt(),
+                    UserRole.PATIENT
+                );
         }
 
         return toResponse(pacienteRepository.save(paciente));
@@ -307,7 +303,7 @@ public class PacienteService {
             token.setUsed(false);
             invitationTokenRepository.save(token);
             expiresAt = token.getExpiresAt();
-            userAccountEmailService.sendActivationInvitationEmail(user, plainToken, expiresAt);
+            userAccountEmailService.sendActivationInvitationEmail(user, plainToken, expiresAt, UserRole.PATIENT);
         }
 
         return new PatientInvitationResponse(

@@ -42,6 +42,12 @@
     },
     {
       "name": "app.auth.login.max-failed-attempts",
+          {
+            "name": "app.auth.login.frontend-url",
+            "type": "java.lang.String",
+            "description": "URL base del frontend usada para construir el enlace de inicio de sesión según el rol del usuario (paciente o profesional)."
+          },
+          {
       "type": "java.lang.Integer",
       "description": "Máximo de intentos fallidos permitidos en la ventana configurada antes de bloquear temporalmente el login."
     },
