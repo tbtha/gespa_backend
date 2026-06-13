@@ -27,6 +27,7 @@ import com.tbtha.gespa_backend.repositories.UsuarioRepository;
 import com.tbtha.gespa_backend.security.AccessControlService;
 import com.tbtha.gespa_backend.security.JwtService;
 import com.tbtha.gespa_backend.services.AuditService;
+import com.tbtha.gespa_backend.services.email.EmailService;
 import com.tbtha.gespa_backend.utils.RutUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -39,10 +40,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.net.URLEncoder;
 
 @Service
 public class AuthService {
@@ -57,9 +60,11 @@ public class AuthService {
     private final JwtService jwtService;
     private final AccessControlService accessControlService;
     private final AuditService auditService;
+    private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
     private final long refreshExpirationSeconds;
     private final long passwordResetExpirationSeconds;
+    private final String passwordResetFrontendUrl;
     private final boolean exposePasswordResetToken;
     private final int loginMaxFailedAttempts;
     private final long loginFailedWindowSeconds;
@@ -76,9 +81,11 @@ public class AuthService {
                        JwtService jwtService,
                        AccessControlService accessControlService,
                        AuditService auditService,
+                       EmailService emailService,
                        PasswordEncoder passwordEncoder,
                        @Value("${app.jwt.refresh-expiration-seconds:1209600}") long refreshExpirationSeconds,
                        @Value("${app.auth.password-reset.expiration-seconds:3600}") long passwordResetExpirationSeconds,
+                       @Value("${app.auth.password-reset.frontend-url:http://localhost:5173/reset-password}") String passwordResetFrontendUrl,
                        @Value("${app.auth.password-reset.expose-token:false}") boolean exposePasswordResetToken,
                        @Value("${app.auth.login.max-failed-attempts:10}") int loginMaxFailedAttempts,
                        @Value("${app.auth.login.failed-window-seconds:900}") long loginFailedWindowSeconds,
@@ -93,9 +100,11 @@ public class AuthService {
         this.jwtService = jwtService;
         this.accessControlService = accessControlService;
         this.auditService = auditService;
+        this.emailService = emailService;
         this.passwordEncoder = passwordEncoder;
         this.refreshExpirationSeconds = refreshExpirationSeconds;
         this.passwordResetExpirationSeconds = passwordResetExpirationSeconds;
+        this.passwordResetFrontendUrl = passwordResetFrontendUrl;
         this.exposePasswordResetToken = exposePasswordResetToken;
         this.loginMaxFailedAttempts = Math.max(loginMaxFailedAttempts, 1);
         this.loginFailedWindowSeconds = Math.max(loginFailedWindowSeconds, 1);
@@ -279,6 +288,7 @@ public class AuthService {
                     token.setUsed(false);
                     passwordResetTokenRepository.save(token);
                     auditService.register("PASSWORD_RESET_REQUEST", "usuarios", user.getId());
+                    sendPasswordResetEmail(user, plainToken, token.getExpiresAt());
 
                     return new PasswordResetRequestResponse(
                             genericMessage,
@@ -473,7 +483,7 @@ public class AuthService {
         };
     }
 
-    private String hashToken(String plainToken) {
+        private String hashToken(String plainToken) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             byte[] digest = md.digest(plainToken.getBytes(StandardCharsets.UTF_8));
@@ -482,6 +492,102 @@ public class AuthService {
             throw new IllegalStateException("No se pudo procesar refresh token", e);
         }
     }
+
+    private void sendPasswordResetEmail(Usuario user, String plainToken, OffsetDateTime expiresAt) {
+        String subject = "Recuperación de contraseña - GESPA";
+        String resetLink = buildPasswordResetLink(plainToken);
+        String htmlBody = buildPasswordResetHtml(user, plainToken, resetLink, expiresAt);
+        emailService.sendHtml(user.getEmail(), subject, htmlBody);
+    }
+
+    private String buildPasswordResetLink(String plainToken) {
+        String encodedToken = URLEncoder.encode(plainToken, StandardCharsets.UTF_8);
+        String frontendUrl = normalizePasswordResetFrontendUrl(passwordResetFrontendUrl);
+
+        if (frontendUrl.contains("{token}")) {
+            return frontendUrl.replace("{token}", encodedToken);
+        }
+
+        String separator = frontendUrl.contains("?") ? "&" : "?";
+        return frontendUrl + separator + "token=" + encodedToken;
+    }
+
+    private String normalizePasswordResetFrontendUrl(String configuredUrl) {
+        String value = configuredUrl == null ? "" : configuredUrl.trim();
+        if (value.isBlank()) {
+            return "http://localhost:5173/reset-password";
+        }
+
+        if (value.contains("{token}") || value.toLowerCase().contains("reset-password")) {
+            return value;
+        }
+
+        if (value.endsWith("/")) {
+            return value + "reset-password";
+        }
+
+        return value + "/reset-password";
+    }
+
+    private String buildPasswordResetHtml(Usuario user, String plainToken, String resetLink, OffsetDateTime expiresAt) {
+        String displayName = user.getDisplayName() == null || user.getDisplayName().isBlank()
+                ? "usuario"
+                : user.getDisplayName();
+        long expiresInMinutes = Math.max(1, OffsetDateTime.now().until(expiresAt, ChronoUnit.MINUTES));
+
+        String safeDisplayName = escapeHtml(displayName);
+        String safeToken = escapeHtml(plainToken);
+        String safeResetLink = escapeHtml(resetLink);
+
+        return """
+                <html>
+                    <body style=\"font-family: Arial, sans-serif; color: #1f2937; background: #f8fafc; padding: 24px;\">
+                        <table style=\"max-width: 620px; margin: 0 auto; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 24px;\">
+                            <tr>
+                                <td>
+                                    <h2 style=\"margin: 0 0 12px 0; color: #111827;\">Recuperación de contraseña</h2>
+                                    <p>Hola %s,</p>
+                                    <p>Recibimos una solicitud para restablecer tu contraseña en GESPA.</p>
+
+                                    <p style=\"margin: 16px 0 8px 0;\"><strong>Tu token de recuperación:</strong></p>
+                                    <div style=\"margin: 0 0 18px 0; padding: 12px 14px; border: 1px dashed #94a3b8; border-radius: 8px; background: #f8fafc; font-family: 'Courier New', monospace; font-size: 20px; letter-spacing: 1.5px; font-weight: 700; color: #0f172a; text-align: center;\">%s</div>
+
+                                    <p style=\"margin: 0 0 4px 0;\"><strong>Pasos:</strong></p>
+                                    <ol style=\"margin-top: 6px; padding-left: 18px;\">
+                                        <li>Abre la página de recuperación de contraseña.</li>
+                                        <li>Pega el token en el campo correspondiente.</li>
+                                        <li>Ingresa tu nueva contraseña y confirma.</li>
+                                    </ol>
+
+                                    <p style=\"margin: 24px 0;\">
+                                        <a href=\"%s\" style=\"background: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 18px; border-radius: 8px; display: inline-block;\">
+                                            Ir a recuperar contraseña
+                                        </a>
+                                    </p>
+
+                                    <p>Este token vence en aproximadamente <strong>%d minutos</strong>.</p>
+                                    <p>Si no solicitaste este cambio, puedes ignorar este correo.</p>
+                                    <hr style=\"border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;\"/>
+                                    <p style=\"font-size: 12px; color: #6b7280;\">
+                                        Si el botón no funciona, copia y pega este enlace en tu navegador:<br/>
+                                        <a href=\"%s\">%s</a>
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </body>
+                </html>
+                """.formatted(safeDisplayName, safeToken, safeResetLink, expiresInMinutes, safeResetLink, safeResetLink);
+    }
+
+        private String escapeHtml(String value) {
+                return value
+                                .replace("&", "&amp;")
+                                .replace("<", "&lt;")
+                                .replace(">", "&gt;")
+                                .replace("\"", "&quot;")
+                                .replace("'", "&#39;");
+        }
 
     private record FailedLoginAttempt(OffsetDateTime firstFailureAt, int failedCount, OffsetDateTime lockedUntil) {
     }

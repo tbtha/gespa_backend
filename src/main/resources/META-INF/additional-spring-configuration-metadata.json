@@ -31,6 +31,11 @@
       "description": "Duración del token de recuperación de contraseña en segundos."
     },
     {
+      "name": "app.auth.password-reset.frontend-url",
+      "type": "java.lang.String",
+      "description": "URL del frontend usada para construir el enlace de recuperación de contraseña. Puede incluir el placeholder {token}."
+    },
+    {
       "name": "app.auth.password-reset.expose-token",
       "type": "java.lang.Boolean",
       "description": "Si está en true, expone el token de recuperación en la respuesta de request (útil en desarrollo)."
@@ -119,6 +124,16 @@
       "name": "app.security.dev-password",
       "type": "java.lang.String",
       "description": "Contraseña temporal de seguridad para desarrollo local."
+    },
+    {
+      "name": "app.mail.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Habilita o deshabilita el envío de correos salientes."
+    },
+    {
+      "name": "app.mail.from",
+      "type": "java.lang.String",
+      "description": "Dirección remitente utilizada para correos transaccionales."
     }
   ]
 }
