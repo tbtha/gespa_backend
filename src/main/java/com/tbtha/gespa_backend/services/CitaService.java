@@ -16,6 +16,7 @@ import com.tbtha.gespa_backend.repositories.ProfesionalRepository;
 import com.tbtha.gespa_backend.repositories.HorarioDisponibleRepository;
 import com.tbtha.gespa_backend.entities.HorarioDisponible;
 import com.tbtha.gespa_backend.security.AccessControlService;
+import com.tbtha.gespa_backend.services.email.AppointmentEmailService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,17 +34,20 @@ public class CitaService {
     private final ProfesionalRepository profesionalRepository;
     private final HorarioDisponibleRepository horarioDisponibleRepository;
     private final AccessControlService accessControlService;
+    private final AppointmentEmailService appointmentEmailService;
 
     public CitaService(CitaRepository citaRepository,
                        PacienteRepository pacienteRepository,
                        ProfesionalRepository profesionalRepository,
                        AccessControlService accessControlService,
-                       HorarioDisponibleRepository horarioDisponibleRepository) {
+                       HorarioDisponibleRepository horarioDisponibleRepository,
+                       AppointmentEmailService appointmentEmailService) {
         this.citaRepository = citaRepository;
         this.pacienteRepository = pacienteRepository;
         this.profesionalRepository = profesionalRepository;
         this.accessControlService = accessControlService;
         this.horarioDisponibleRepository = horarioDisponibleRepository;
+        this.appointmentEmailService = appointmentEmailService;
     }
 
     @Transactional
@@ -86,7 +90,12 @@ public class CitaService {
         }
         cita.setLocation(lugar);
 
-        return toResponse(citaRepository.save(cita));
+        Cita savedCita = citaRepository.save(cita);
+
+        // Enviar notificaciones por email al paciente y al profesional
+        appointmentEmailService.sendAppointmentNotifications(savedCita);
+
+        return toResponse(savedCita);
     }
 
     @Transactional(readOnly = true)
