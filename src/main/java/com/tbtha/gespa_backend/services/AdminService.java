@@ -11,6 +11,7 @@ import com.tbtha.gespa_backend.dtos.CreatePatientInvitationRequest;
 import com.tbtha.gespa_backend.dtos.PatientInvitationResponse;
 import com.tbtha.gespa_backend.dtos.ProfessionalInvitationResponse;
 import com.tbtha.gespa_backend.entities.Paciente;
+import com.tbtha.gespa_backend.entities.PasswordResetToken;
 import com.tbtha.gespa_backend.entities.ProfessionalInvitationToken;
 import com.tbtha.gespa_backend.entities.Profesional;
 import com.tbtha.gespa_backend.entities.RefreshToken;
@@ -20,6 +21,7 @@ import com.tbtha.gespa_backend.entities.enums.UserRole;
 import com.tbtha.gespa_backend.exceptions.ConflictException;
 import com.tbtha.gespa_backend.exceptions.ResourceNotFoundException;
 import com.tbtha.gespa_backend.repositories.PacienteRepository;
+import com.tbtha.gespa_backend.repositories.PasswordResetTokenRepository;
 import com.tbtha.gespa_backend.repositories.ProfessionalInvitationTokenRepository;
 import com.tbtha.gespa_backend.repositories.ProfesionalRepository;
 import com.tbtha.gespa_backend.repositories.RefreshTokenRepository;
@@ -48,29 +50,35 @@ public class AdminService {
     private final PacienteRepository pacienteRepository;
     private final SpecialtyRepository specialtyRepository;
     private final ProfessionalInvitationTokenRepository invitationTokenRepository;
+    private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final UserAccountEmailService userAccountEmailService;
     private final long invitationExpirationSeconds;
+    private final long passwordResetExpirationSeconds;
 
     public AdminService(UsuarioRepository usuarioRepository,
                         ProfesionalRepository profesionalRepository,
                         PacienteRepository pacienteRepository,
                         SpecialtyRepository specialtyRepository,
                         ProfessionalInvitationTokenRepository invitationTokenRepository,
+                        PasswordResetTokenRepository passwordResetTokenRepository,
                         RefreshTokenRepository refreshTokenRepository,
                         PasswordEncoder passwordEncoder,
                         UserAccountEmailService userAccountEmailService,
-                        @Value("${app.auth.invitation.expiration-seconds:604800}") long invitationExpirationSeconds) {
+                        @Value("${app.auth.invitation.expiration-seconds:604800}") long invitationExpirationSeconds,
+                        @Value("${app.auth.password-reset.expiration-seconds:3600}") long passwordResetExpirationSeconds) {
         this.usuarioRepository = usuarioRepository;
         this.profesionalRepository = profesionalRepository;
         this.pacienteRepository = pacienteRepository;
         this.specialtyRepository = specialtyRepository;
         this.invitationTokenRepository = invitationTokenRepository;
+        this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.userAccountEmailService = userAccountEmailService;
         this.invitationExpirationSeconds = invitationExpirationSeconds;
+        this.passwordResetExpirationSeconds = passwordResetExpirationSeconds;
     }
 
     @Transactional
@@ -282,17 +290,23 @@ public class AdminService {
         Usuario user = usuarioRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
 
-        String temporaryPassword = generateTemporaryPassword();
-        user.setPasswordHash(passwordEncoder.encode(temporaryPassword));
-        usuarioRepository.save(user);
-
+        // Invalida sesiones activas
         revokeActiveRefreshTokens(userId);
 
-        return new AdminResetPasswordResponse(
-                user.getId(),
-                user.getEmail(),
-                temporaryPassword
-        );
+        // Genera token de reset y envía correo al usuario usando el mismo flujo que el self-service
+        String plainToken = UUID.randomUUID() + "." + UUID.randomUUID();
+        passwordResetTokenRepository.deleteByUser_Id(user.getId());
+
+        PasswordResetToken token = new PasswordResetToken();
+        token.setUser(user);
+        token.setTokenHash(hashToken(plainToken));
+        token.setExpiresAt(OffsetDateTime.now().plusSeconds(passwordResetExpirationSeconds));
+        token.setUsed(false);
+        passwordResetTokenRepository.save(token);
+
+        userAccountEmailService.sendPasswordResetEmail(user, plainToken, token.getExpiresAt());
+
+        return new AdminResetPasswordResponse(user.getId(), user.getEmail(), null);
     }
 
     @Transactional(readOnly = true)

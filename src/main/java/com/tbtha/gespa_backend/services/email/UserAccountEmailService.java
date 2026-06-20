@@ -16,15 +16,18 @@ public class UserAccountEmailService {
     private final EmailService emailService;
     private final String invitationFrontendUrl;
     private final String loginFrontendBaseUrl;
+    private final String passwordResetFrontendUrl;
 
     public UserAccountEmailService(
             EmailService emailService,
             @Value("${app.auth.invitation.frontend-url:http://localhost:5173/aceptar-invitacion}") String invitationFrontendUrl,
-            @Value("${app.auth.login.frontend-url:http://localhost:5173}") String loginFrontendBaseUrl
+            @Value("${app.auth.login.frontend-url:http://localhost:5173}") String loginFrontendBaseUrl,
+            @Value("${app.auth.password-reset.frontend-url:http://localhost:5173/reset-password}") String passwordResetFrontendUrl
     ) {
         this.emailService = emailService;
         this.invitationFrontendUrl = invitationFrontendUrl;
         this.loginFrontendBaseUrl = loginFrontendBaseUrl.replaceAll("/+$", "");
+        this.passwordResetFrontendUrl = passwordResetFrontendUrl == null ? "" : passwordResetFrontendUrl.trim();
     }
 
     public void sendUserCreatedEmail(Usuario user) {
@@ -224,6 +227,77 @@ public class UserAccountEmailService {
             return "patient";
         }
         return "professional";
+    }
+
+    public void sendPasswordResetEmail(Usuario user, String plainToken, OffsetDateTime expiresAt) {
+        if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
+            return;
+        }
+        if (plainToken == null || plainToken.isBlank() || expiresAt == null) {
+            return;
+        }
+
+        String subject = "Restablece tu contraseña - GESPA";
+        String resetLink = buildPasswordResetLink(plainToken);
+        String htmlBody = buildPasswordResetHtml(user, plainToken, resetLink, expiresAt);
+        emailService.sendHtml(user.getEmail(), subject, htmlBody);
+    }
+
+    private String buildPasswordResetLink(String plainToken) {
+        String encodedToken = URLEncoder.encode(plainToken, StandardCharsets.UTF_8);
+        String base = passwordResetFrontendUrl.isBlank()
+                ? "http://localhost:5173/reset-password"
+                : passwordResetFrontendUrl.replaceAll("/+$", "");
+
+        if (base.contains("{token}")) {
+            return base.replace("{token}", encodedToken);
+        }
+
+        String separator = base.contains("?") ? "&" : "?";
+        return base + separator + "token=" + encodedToken;
+    }
+
+    private String buildPasswordResetHtml(Usuario user, String plainToken, String resetLink, OffsetDateTime expiresAt) {
+        String displayName = user.getDisplayName() == null || user.getDisplayName().isBlank()
+                ? "usuario" : user.getDisplayName();
+        long expiresInMinutes = Math.max(1, OffsetDateTime.now().until(expiresAt, ChronoUnit.MINUTES));
+
+        String safeDisplayName = escapeHtml(displayName);
+        String safeToken = escapeHtml(plainToken);
+        String safeResetLink = escapeHtml(resetLink);
+
+        return """
+                <html>
+                    <body style="font-family: Arial, sans-serif; color: #1f2937; background: #f8fafc; padding: 24px;">
+                        <table style="max-width: 620px; margin: 0 auto; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 24px;">
+                            <tr>
+                                <td>
+                                    <h2 style="margin: 0 0 12px 0; color: #111827;">Restablecimiento de contraseña</h2>
+                                    <p>Hola %s,</p>
+                                    <p>Hemos recibido una solicitud para restablecer la contraseña de tu cuenta en GESPA.</p>
+
+                                    <p style="margin: 16px 0 8px 0;"><strong>Tu token de recuperación:</strong></p>
+                                    <div style="margin: 0 0 18px 0; padding: 12px 14px; border: 1px dashed #94a3b8; border-radius: 8px; background: #f8fafc; font-family: 'Courier New', monospace; font-size: 18px; letter-spacing: 1.5px; font-weight: 700; color: #0f172a; text-align: center;">%s</div>
+
+                                    <p style="margin: 24px 0;">
+                                        <a href="%s" style="background: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 18px; border-radius: 8px; display: inline-block;">
+                                            Restablecer contraseña
+                                        </a>
+                                    </p>
+
+                                    <p>Este enlace vence en aproximadamente <strong>%d minutos</strong>.</p>
+                                    <p>Si no solicitaste este cambio, puedes ignorar este correo. Tu contraseña actual no cambiará hasta completar el proceso.</p>
+                                    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;"/>
+                                    <p style="font-size: 12px; color: #6b7280;">
+                                        Si el botón no funciona, copia y pega este enlace en tu navegador:<br/>
+                                        <a href="%s">%s</a>
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </body>
+                </html>
+                """.formatted(safeDisplayName, safeToken, safeResetLink, expiresInMinutes, safeResetLink, safeResetLink);
     }
 
     private String escapeHtml(String value) {

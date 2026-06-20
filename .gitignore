@@ -18,3 +18,5 @@ target/
 ### Env ###
 .env
 *.local
+**/application-local.properties
+**/application-*.local.properties
