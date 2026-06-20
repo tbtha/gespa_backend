@@ -5,6 +5,7 @@ import java.util.List;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
@@ -105,8 +106,18 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body(error);
     }
 
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiError> handleGeneric(Exception ex) {
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiError> handleNotReadable(HttpMessageNotReadableException ex) {
+        ApiError error = new ApiError(
+                "BAD_REQUEST",
+                "El cuerpo de la solicitud contiene valores inválidos o no puede ser interpretado",
+                List.of(ex.getMessage() == null ? "Sin detalle" : ex.getMessage()),
+                OffsetDateTime.now());
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
+    @ExceptionHandler(Exception.class)    public ResponseEntity<ApiError> handleGeneric(Exception ex) {
         ApiError error = new ApiError(
                 "INTERNAL_ERROR",
                 "Ocurrió un error inesperado",

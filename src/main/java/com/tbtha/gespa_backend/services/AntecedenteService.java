@@ -41,11 +41,12 @@ public class AntecedenteService {
 
     @Transactional
     public AntecedentesResponse upsert(Long pacienteId, UpsertAntecedentesRequest request) {
+        // Primero verificar acceso al recurso (ownership), luego el rol
+        accessControlService.assertCanAccessPaciente(pacienteId);
+
         if (accessControlService.currentUserRole() == UserRole.PATIENT) {
             throw new org.springframework.security.access.AccessDeniedException("El paciente no puede editar antecedentes clínicos");
         }
-
-        accessControlService.assertCanAccessPaciente(pacienteId);
 
         Paciente paciente = pacienteRepository.findById(pacienteId)
                 .orElseThrow(() -> new ResourceNotFoundException("Paciente no encontrado"));

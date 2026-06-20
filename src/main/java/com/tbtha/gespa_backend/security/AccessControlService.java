@@ -62,7 +62,7 @@ public class AccessControlService {
             return;
         }
 
-        throw new AccessDeniedException("No tienes permisos para acceder a este paciente");
+        throw new AccessDeniedException("Acceso no autorizado al recurso del paciente");
     }
 
     public void assertCanAccessCita(Cita cita) {
